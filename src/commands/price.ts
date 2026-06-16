@@ -53,7 +53,7 @@ export async function priceCommand(detail: boolean = false): Promise<void> {
   }
 
   // 上海金
-  if (marketData.shanghai.price.value) {
+  if (marketData.shanghai.price?.value) {
     rows.push([
       '上海金 (Au99.99)',
       formatPrice(marketData.shanghai.price.value, 'CNY') + '/g',
@@ -63,7 +63,7 @@ export async function priceCommand(detail: boolean = false): Promise<void> {
   }
 
   // 黄金ETF
-  if (marketData.etf.nav.value) {
+  if (marketData.etf.nav?.value) {
     rows.push([
       `黄金ETF (${marketData.etf.code})`,
       marketData.etf.nav.value.toFixed(3),
@@ -73,7 +73,7 @@ export async function priceCommand(detail: boolean = false): Promise<void> {
   }
 
   // 美元指数
-  if (marketData.dollarIndex.value.value) {
+  if (marketData.dollarIndex.value?.value) {
     rows.push([
       '美元指数 (DXY)',
       marketData.dollarIndex.value.value.toFixed(2),
@@ -83,7 +83,7 @@ export async function priceCommand(detail: boolean = false): Promise<void> {
   }
 
   // 美债
-  if (marketData.usTreasury.yield10y.value) {
+  if (marketData.usTreasury.yield10y?.value) {
     rows.push([
       '10Y美债收益率',
       marketData.usTreasury.yield10y.value.toFixed(2) + '%',

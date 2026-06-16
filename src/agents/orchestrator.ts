@@ -125,7 +125,7 @@ export class OrchestratorAgent extends BaseAgent {
 
     const prompt = `## 市场数据
 伦敦金: $${marketData.london.price.value} (${marketData.london.price.change > 0 ? '+' : ''}${marketData.london.price.change}%)
-上海金: ¥${marketData.shanghai.price.value}/g
+上海金: ¥${marketData.shanghai.price?.value}/g
 ETF(518880): ${marketData.etf.nav.value}
 美元指数: ${marketData.dollarIndex.value.value}
 10Y美债: ${marketData.usTreasury.yield10y.value}%

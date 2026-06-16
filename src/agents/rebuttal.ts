@@ -83,9 +83,9 @@ export class RebuttalAgent extends BaseAgent {
 - 溢价折价: ${fund.premiumDiscount.current}%
 
 ## 厂市场数据
-- 伦敦金: $${marketData.london.price.value} (${marketData.london.price.change > 0 ? '+' : ''}${marketData.london.price.change}%)
-- 美元指数: ${marketData.dollarIndex.value.value} (${marketData.dollarIndex.value.change > 0 ? '+' : ''}${marketData.dollarIndex.value.change}%)
-- 10Y美债: ${marketData.usTreasury.yield10y.value}%
+- 伦敦金: $${marketData.london.price?.value} (${marketData.london.price?.change > 0 ? '+' : ''}${marketData.london.price?.change}%)
+- 美元指数: ${marketData.dollarIndex.value?.value} (${marketData.dollarIndex.value?.change > 0 ? '+' : ''}${marketData.dollarIndex.value?.change}%)
+- 10Y美债: ${marketData.usTreasury.yield10y?.value}%
 - TIPS: ${marketData.usTreasury.tips?.value ?? 'N/A'}%
 
 请系统性地反驳上述分析，找出所有被忽略的风险。`;
