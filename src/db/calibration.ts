@@ -5,6 +5,7 @@ import { GoldPricesRepo } from './gold-prices.js';
 import { ScenarioFeaturesRepo } from './scenario-features.js';
 import type { CalibrationBucket, CalibrationReport, RiskAlertQuality } from '../types/calibration.js';
 import type { Direction } from '../types/analysis.js';
+import { SCORE_BUCKETS, scoreBucketRange } from '../utils/score-buckets.js';
 
 export class CalibrationRepo {
   private reports: ReportsRepo;
@@ -58,21 +59,12 @@ export class CalibrationRepo {
       ? { from: reports[reports.length - 1].date, to: reports[0].date }
       : { from: 'N/A', to: 'N/A' };
 
-    const ranges = [
-      { range: '0-30', min: 0, max: 30 },
-      { range: '30-50', min: 30, max: 50 },
-      { range: '50-60', min: 50, max: 60 },
-      { range: '60-70', min: 60, max: 70 },
-      { range: '70-80', min: 70, max: 80 },
-      { range: '80-90', min: 80, max: 90 },
-      { range: '90-100', min: 90, max: 100 },
-    ];
-
     const buckets: CalibrationBucket[] = [];
     let totalValid = 0;
 
-    for (const { range, min, max } of ranges) {
-      const matching = reports.filter(r => r.overallScore >= min && r.overallScore < max);
+    for (const { range, min, max } of SCORE_BUCKETS) {
+      const isLast = max === 100;
+      const matching = reports.filter(r => r.overallScore >= min && (isLast ? r.overallScore <= max : r.overallScore < max));
       if (matching.length === 0) continue;
 
       let upCount = 0;
@@ -192,17 +184,7 @@ export class CalibrationRepo {
 
   /** 获取校准上下文（注入综合编排prompt） */
   getCalibrationContext(score: number): { scoreRange: string; historicalAccuracy: number | null; systematicBias: string; sampleSize: number } | null {
-    const ranges = [
-      { range: '0-30', min: 0, max: 30 },
-      { range: '30-50', min: 30, max: 50 },
-      { range: '50-60', min: 50, max: 60 },
-      { range: '60-70', min: 60, max: 70 },
-      { range: '70-80', min: 70, max: 80 },
-      { range: '80-90', min: 80, max: 90 },
-      { range: '90-100', min: 90, max: 100 },
-    ];
-
-    const matchedRange = ranges.find(r => score >= r.min && score < r.max);
+    const matchedRange = scoreBucketRange(score);
     if (!matchedRange) return null;
 
     // 查最近90天的该区间报告

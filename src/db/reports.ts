@@ -34,12 +34,17 @@ export class ReportsRepo {
     return rows.map(mapRow);
   }
 
-  /** 获取指定评分区间的报告 */
+  /**
+   * 获取指定评分区间的报告。
+   * 区间为左闭右开 [min, max)；当 max 为 100（最高区间）时右端取闭区间，
+   * 使满分 100 的报告也能被纳入，与校准分桶逻辑保持一致。
+   */
   getByScoreRange(minScore: number, maxScore: number, days?: number): AnalysisReportRow[] {
+    const upperOp = maxScore >= 100 ? '<=' : '<';
     if (days) {
       const rows = this.db.prepare(`
         SELECT * FROM analysis_reports
-        WHERE overall_score >= ? AND overall_score < ?
+        WHERE overall_score >= ? AND overall_score ${upperOp} ?
         AND date >= date('now', '-' || ? || ' days')
         ORDER BY date ASC
       `).all(minScore, maxScore, days) as Record<string, unknown>[];
@@ -47,7 +52,7 @@ export class ReportsRepo {
     }
     const rows = this.db.prepare(`
       SELECT * FROM analysis_reports
-      WHERE overall_score >= ? AND overall_score < ?
+      WHERE overall_score >= ? AND overall_score ${upperOp} ?
       ORDER BY date ASC
     `).all(minScore, maxScore) as Record<string, unknown>[];
     return rows.map(mapRow);

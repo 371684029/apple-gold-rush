@@ -133,6 +133,16 @@ export function crossValidate(
 /** 判断数据时效性 */
 export function checkFreshness(dataTime: string, thresholdHours: number = 4): { fresh: boolean; ageHours: number; warning?: string } {
   const dataDate = new Date(dataTime);
+
+  // 非法时间戳：视为不新鲜并提示，避免 NaN 比较被误判为 fresh
+  if (Number.isNaN(dataDate.getTime())) {
+    return {
+      fresh: false,
+      ageHours: 0,
+      warning: `⚠️ 数据时间戳无效（${dataTime || '空'}），无法判断时效性`,
+    };
+  }
+
   const now = new Date();
   const ageMs = now.getTime() - dataDate.getTime();
   const ageHours = ageMs / (1000 * 60 * 60);

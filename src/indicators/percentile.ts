@@ -39,7 +39,7 @@ export function rollingPercentile(data: number[], window: number): (number | nul
       continue;
     }
 
-    const windowData = data.slice(i - window + 1, i);
+    const windowData = data.slice(i - window + 1, i + 1);
     const p = percentile(data[i], windowData);
     result.push(p);
   }
