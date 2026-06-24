@@ -122,8 +122,13 @@ program
   .option('--type <type>', '查看类型: prices/reports', 'prices')
   .option('--days <n>', '查看天数', '30')
   .action(async (opts) => {
+    const type = opts.type as string;
+    if (!['prices', 'reports'].includes(type)) {
+      console.error('❌ --type 必须是 prices 或 reports');
+      process.exit(1);
+    }
     try {
-      await historyCommand(opts.type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
+      await historyCommand(type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
     } finally {
       closeDb();
     }

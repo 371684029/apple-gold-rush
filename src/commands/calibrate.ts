@@ -51,6 +51,14 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
     console.log(`  ${bucket.scoreRange.padEnd(8)} ${String(bucket.sampleSize).padStart(4)}  ${(bucket.actualUpProbability * 100).toFixed(0).padStart(8)}%    ${bucket.avgReturn > 0 ? '+' : ''}${bucket.avgReturn.toFixed(1).padStart(6)}%   ${biasStr}  ${systemBiasStr}`);
   }
 
+  // --detail：按评分区间展开明细
+  if (options.detail) {
+    console.log(`\n  🔍 区间明细\n`);
+    for (const bucket of report.buckets) {
+      console.log(`  ${bucket.scoreRange}: 预测方向=${bucket.predictedDirection} | 实际上涨 ${bucket.actualUpCount}/${bucket.sampleSize} | 校准误差 ${bucket.calibrationError.toFixed(1)}% | 系统偏差=${bucket.systematicBias}`);
+    }
+  }
+
   // 整体偏差
   const biasDir = report.overallBias > 0 ? '偏乐观' : report.overallBias < 0 ? '偏保守' : '校准良好';
   console.log(`\n  ⚠️ 系统偏差: 整体${biasDir} ${Math.abs(report.overallBias).toFixed(1)}%`);
