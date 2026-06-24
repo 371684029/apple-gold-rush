@@ -46,7 +46,8 @@ program
   .description('综合分析报告（默认输出双视角：短期 + 中长期）')
   .option('-H, --horizon <type>', '输出视角: short/mid/all', 'all')
   .option('--json', '输出 JSON 格式')
-  .option('--save', '保存报告到文件')
+  .option('--save', '保存报告到文件 (JSON)')
+  .option('--md', '导出 Markdown 日报到文件')
   .action(async (opts) => {
     const horizon = opts.horizon as 'short' | 'mid' | 'all';
     if (!['short', 'mid', 'all'].includes(horizon)) {
@@ -58,6 +59,7 @@ program
         horizon,
         json: opts.json ?? false,
         save: opts.save ?? false,
+        md: opts.md ?? false,
       });
     } finally {
       closeDb();

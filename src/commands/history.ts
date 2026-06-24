@@ -1,9 +1,10 @@
 // goldrush history — 查看本地历史数据/报告
 
+import Table from 'cli-table3';
 import { getDb } from '../db/index.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { ReportsRepo } from '../db/reports.js';
-import { header, separator, directionMark, changeColor } from '../utils/format.js';
+import { header, directionMark } from '../utils/format.js';
 
 export async function historyCommand(type: 'prices' | 'reports' = 'prices', days: number = 30): Promise<void> {
   const db = getDb();
@@ -20,19 +21,23 @@ export async function historyCommand(type: 'prices' | 'reports' = 'prices', days
       return;
     }
 
-    console.log('\n  日期         伦敦金     上海金     ETF     美元指数');
-    console.log(separator('─', 55));
+    const table = new Table({
+      head: ['日期', '伦敦金', '上海金', 'ETF净值', '美元指数'],
+      colAligns: ['left', 'right', 'right', 'right', 'right'],
+      style: { head: ['cyan'] },
+    });
 
     for (const r of records.slice(-20)) { // 最近20条
-      const london = r.londonClose ? `$${r.londonClose.toFixed(2)}` : 'N/A';
-      const shanghai = r.shanghaiClose ? `¥${r.shanghaiClose.toFixed(2)}` : 'N/A';
-      const etf = r.etfNav ? r.etfNav.toFixed(3) : 'N/A';
-      const dxy = r.dollarIndex ? r.dollarIndex.toFixed(2) : 'N/A';
-
-      console.log(`  ${r.date}  ${london.padStart(10)}  ${shanghai.padStart(10)}  ${etf.padStart(7)}  ${dxy.padStart(8)}`);
+      table.push([
+        r.date,
+        r.londonClose != null ? `$${r.londonClose.toFixed(2)}` : 'N/A',
+        r.shanghaiClose != null ? `¥${r.shanghaiClose.toFixed(2)}` : 'N/A',
+        r.etfNav != null ? r.etfNav.toFixed(3) : 'N/A',
+        r.dollarIndex != null ? r.dollarIndex.toFixed(2) : 'N/A',
+      ]);
     }
 
-    console.log(separator('═', 55));
+    console.log(table.toString());
   } else {
     const repo = new ReportsRepo(db);
     const reports = repo.getRecent(days);
@@ -45,13 +50,16 @@ export async function historyCommand(type: 'prices' | 'reports' = 'prices', days
       return;
     }
 
-    console.log('\n  日期         评分   方向     视角');
-    console.log(separator('─', 45));
+    const table = new Table({
+      head: ['日期', '评分', '方向', '视角'],
+      colAligns: ['left', 'right', 'left', 'left'],
+      style: { head: ['cyan'] },
+    });
 
     for (const r of reports) {
-      console.log(`  ${r.date}  ${String(r.overallScore).padStart(3)}/100  ${directionMark(r.direction)}  ${r.horizon}`);
+      table.push([r.date, `${r.overallScore}/100`, directionMark(r.direction), r.horizon]);
     }
 
-    console.log(separator('═', 45));
+    console.log(table.toString());
   }
 }

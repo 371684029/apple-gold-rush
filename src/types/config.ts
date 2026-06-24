@@ -14,6 +14,7 @@ export interface AnalysisOptions {
   horizon: Horizon;
   json: boolean;
   save: boolean;
+  md: boolean;
 }
 
 /** 回测命令选项 */

@@ -6,11 +6,12 @@ import { TechnicalAgent, FundamentalAgent, SentimentAgent, FundAgent } from '../
 import { RebuttalAgent } from '../agents/rebuttal.js';
 import { OrchestratorAgent } from '../agents/orchestrator.js';
 import { header, separator, directionMark, scoreBar, changeColor, riskLevel, valuationMark, sessionMark } from '../utils/format.js';
+import { formatReportMarkdown } from '../utils/report-md.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
 
-export async function analysisCommand(options: { horizon: Horizon; json: boolean; save: boolean }): Promise<void> {
+export async function analysisCommand(options: { horizon: Horizon; json: boolean; save: boolean; md: boolean }): Promise<void> {
   console.log('\n🔬 GoldRush 综合分析启动...\n');
 
   // Step 1: 数据采集 + 验证
@@ -72,6 +73,14 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
     const fs = await import('node:fs');
     fs.writeFileSync(filename, JSON.stringify(report, null, 2), 'utf-8');
     console.log(`\n💾 报告已保存到 ${filename}`);
+  }
+
+  // 导出 Markdown 日报
+  if (options.md) {
+    const filename = `goldrush-日报-${new Date().toISOString().slice(0, 10)}.md`;
+    const fs = await import('node:fs');
+    fs.writeFileSync(filename, formatReportMarkdown(report, options.horizon), 'utf-8');
+    console.log(`\n📄 Markdown 日报已保存到 ${filename}`);
   }
 
   // 清理
