@@ -14,6 +14,16 @@ LOG_FILE="$LOG_DIR/daily-$(date +%Y-%m-%d).log"
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] GoldRush 每日分析开始" >> "$LOG_FILE" 2>&1
 
+# 拉取最新代码，有变更才构建；网络失败不阻断分析
+BEFORE=$(git rev-parse HEAD)
+git pull >> "$LOG_FILE" 2>&1 || true
+AFTER=$(git rev-parse HEAD)
+
+if [ "$BEFORE" != "$AFTER" ]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] 检测到新代码，重新构建..." >> "$LOG_FILE" 2>&1
+  npm run build >> "$LOG_FILE" 2>&1
+fi
+
 # 运行分析
 node "$PROJECT_DIR/dist/index.js" analysis --md >> "$LOG_FILE" 2>&1
 
