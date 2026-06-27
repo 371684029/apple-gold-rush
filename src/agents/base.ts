@@ -1,7 +1,7 @@
 // Agent 基类 — 通过 opencode HTTP API 调用 LLM
 import type { ModelConfig } from '../types/config.js';
 
-const OPENCODE_SERVER = process.env.OPENCODE_SERVER || 'http://localhost:8080';
+const OPENCODE_SERVER = process.env.OPENCODE_SERVER || 'http://localhost:16688';
 const OPENCODE_USERNAME = process.env.OPENCODE_SERVER_USERNAME || 'opencode';
 const OPENCODE_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || 'goldrush2026';
 
