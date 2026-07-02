@@ -156,7 +156,7 @@ export class OrchestratorAgent extends BaseAgent {
 上海金: ¥${marketData.shanghai.price?.value}/g
 ETF(518880): ${marketData.etf.nav.value}
 美元指数: ${marketData.dollarIndex.value.value}
-10Y美债: ${marketData.usTreasury.yield10y.value}%
+10Y美债: ${marketData.usTreasury.yield10y?.value ?? 'N/A'}%
 
 ## 技术面 (${technical.score}/100 ${technical.direction})
 短期: ${technical.shortTerm.trend}, ${technical.shortTerm.keySignal}
