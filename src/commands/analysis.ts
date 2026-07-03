@@ -9,6 +9,7 @@ import { header, separator, directionMark, scoreBar, changeColor, riskLevel, val
 import { formatReportMarkdown } from '../utils/report-md.js';
 import { computeTailRiskIndex } from '../utils/tail-risk.js';
 import { getConfig } from '../utils/config.js';
+import { buildScoreBreakdown, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
@@ -54,7 +55,10 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   console.log('  ⚔️ Step 2.5: 强制反驳...');
   const rebuttalAgent = new RebuttalAgent();
   const rebuttal = await rebuttalAgent.rebut(technical, fundamental, sentiment, fund, marketData);
+  const scoreBreakdown = buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
   console.log(`  ✅ 反驳完成 (看空力度: ${rebuttal.bearScore}/100, 强度: ${rebuttal.rebuttalStrength})`);
+  console.log(`  📈 ${formatScoreBreakdownOneLine(scoreBreakdown)}`);
+  console.log(formatScoreBreakdownConsole(scoreBreakdown));
 
   // Step 3: 综合编排
   console.log('  🎯 Step 3: 综合编排...');
@@ -70,7 +74,7 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
   } else {
-    printReport(report, options.horizon);
+    printReport(report, options.horizon, scoreBreakdown);
   }
 
   // 保存到文件 (JSON)
@@ -100,10 +104,13 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   return 0;
 }
 
-function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
+function printReport(report: GoldAnalysisReport, horizon: Horizon, scoreBreakdown?: ReturnType<typeof buildScoreBreakdown>): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
 
   console.log(header('🎯 GoldRush 综合分析报告', formatNow()));
+
+  const bd = scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
+  console.log('\n' + formatScoreBreakdownConsole(bd, '  '));
 
   // 综合研判
   const scoreDisplay = overall?.score ?? 'N/A';
@@ -147,7 +154,7 @@ function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
     console.log(`  · 看多漏洞: ${vul.vulnerability}`);
   }
   if (rebuttal.adjustedScore) {
-    console.log(`  → 评分从初步${Math.round((technical.score + fundamental.score + sentiment.score) / 3)}分调整为${rebuttal.adjustedScore}分`);
+    console.log(`  → 详见上方「评分构成」明细`);
   }
 
   // 双轨策略

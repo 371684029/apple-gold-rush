@@ -6,8 +6,9 @@
 
 import type { GoldAnalysisReport } from '../types/analysis.js';
 import type { Horizon } from '../types/config.js';
-import { computeTailRiskIndex } from '../utils/tail-risk.js';
-import { getConfig } from '../utils/config.js';
+import { buildScoreBreakdown, formatScoreBreakdownMarkdown } from './score-breakdown.js';
+import { computeTailRiskIndex } from './tail-risk.js';
+import { getConfig } from './config.js';
 
 function dirText(d: string | undefined): string {
   switch (d) {
@@ -51,7 +52,12 @@ export function formatReportMarkdown(report: GoldAnalysisReport, horizon: Horizo
   }
   lines.push('');
 
-  // 情景分析
+  if (technical && fundamental && sentiment && rebuttal) {
+    const bd = buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
+    lines.push(...formatScoreBreakdownMarkdown(bd));
+  }
+
+  // 情景分析（原 cal 块已上移）
   const sc = overall?.scenarios;
   if (sc) {
     lines.push('## ⚡ 情景分析');

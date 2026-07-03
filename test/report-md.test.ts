@@ -44,6 +44,7 @@ describe('formatReportMarkdown', () => {
     const md = formatReportMarkdown(buildReport(), 'all');
     expect(md).toContain('# 🥇 GoldRush 黄金投资日报');
     expect(md).toContain('## 综合研判');
+    expect(md).toContain('## 📊 评分构成');
     expect(md).toContain('64/100');
     expect(md).toContain('## ⚡ 情景分析');
     expect(md).toContain('## 📈 四维度摘要');

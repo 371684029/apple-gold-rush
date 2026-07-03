@@ -36,6 +36,59 @@ function extractDimensionScores(md) {
   return dims;
 }
 
+/** 提取评分构成表格（新格式 Markdown） */
+function extractScoreBreakdown(md) {
+  const idx = md.indexOf('## 📊 评分构成');
+  if (idx < 0) return null;
+  const slice = md.slice(idx, idx + 2000);
+  const rows = [];
+  for (const line of slice.split('\n')) {
+    if (!line.startsWith('|') || line.includes('---') || line.includes('步骤')) continue;
+    const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+    if (cells.length < 4) continue;
+    rows.push({
+      step: cells[0].replace(/\*\*/g, ''),
+      detail: cells[1],
+      delta: cells[2].replace(/\*\*/g, ''),
+      total: cells[3].replace(/\*\*/g, ''),
+    });
+  }
+  return rows.length ? rows : null;
+}
+
+/** 提取速览信息（基准情景 + 短期操作） */
+function extractQuickGlance(md) {
+  const glance = { baseAction: '', shortAction: '', baseProb: '' };
+  const baseRow = md.match(/\| 基准 \| ([^|]+) \| ([^|]+) \| ([^|]+)/);
+  if (baseRow) {
+    glance.baseProb = baseRow[1].trim();
+    glance.baseAction = baseRow[3].trim().slice(0, 80);
+  }
+  const shortOp = md.match(/## ⏱️ 短期策略[\s\S]*?- 操作：([^\n]+)/);
+  if (shortOp) glance.shortAction = shortOp[1].trim().slice(0, 60);
+  return glance;
+}
+
+/** 渲染评分构成瀑布（侧边栏） */
+function renderScoreWaterfall(breakdown) {
+  if (!breakdown || !breakdown.length) return '';
+  return breakdown.map(row => {
+    const isFinal = row.step.includes('最终');
+    const isSubtotal = row.step.includes('均分') || row.step.includes('反驳');
+    let deltaClass = 'neutral';
+    if (row.delta.startsWith('+')) deltaClass = 'up';
+    else if (row.delta.startsWith('-') || row.delta.startsWith('−')) deltaClass = 'down';
+    return `<div class="wf-row ${isFinal ? 'wf-final' : isSubtotal ? 'wf-sub' : ''}">
+      <div class="wf-step">${esc(row.step)}</div>
+      <div class="wf-detail">${esc(row.detail)}</div>
+      <div class="wf-meta">
+        ${row.delta !== '—' ? `<span class="wf-delta ${deltaClass}">${esc(row.delta)}</span>` : ''}
+        ${row.total !== '—' ? `<span class="wf-total">${esc(row.total)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 /** HTML 转义 */
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -60,6 +113,8 @@ function getFileInfos(files) {
       direction: scoreInfo?.direction ?? null,
       dims,
       mdLength: md.length,
+      glance: extractQuickGlance(md),
+      breakdown: extractScoreBreakdown(md),
     };
   });
 }
@@ -78,18 +133,32 @@ function scoreBadge(score) {
 // ===== 文件列表页（含搜索过滤排序） =====
 
 function renderIndex(fileInfos) {
-  const rows = fileInfos.map(info => {
-    const mtimeStr = info.mtime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-    return `<tr>
-      <td class="file-score">${scoreBadge(info.score)}</td>
-      <td class="file-name">
-        <a href="/${info.filename}">${esc(info.filename)}</a>
-        <span class="date-label">${info.dateLabel}</span>
-      </td>
-      <td class="file-dims">${info.dims.map(d => `<span class="dim-tag">${d.name.slice(0, 2)} ${d.score}</span>`).join('')}</td>
-      <td class="file-size">${info.sizeKB} KB</td>
-      <td class="file-time">${mtimeStr}</td>
-    </tr>`;
+  const latest = fileInfos[0] ?? null;
+  const rest = fileInfos.slice(1);
+
+  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'}">
+    <div class="hero-badge">最新</div>
+    <div class="hero-left">${scoreBadge(latest.score)}</div>
+    <div class="hero-body">
+      <div class="hero-date">${esc(latest.dateLabel)}</div>
+      <div class="hero-title">黄金投资日报</div>
+      ${latest.glance?.baseAction ? `<div class="hero-action">基准 ${esc(latest.glance.baseProb)} · ${esc(latest.glance.baseAction)}</div>` : ''}
+      ${latest.glance?.shortAction ? `<div class="hero-short">短期：${esc(latest.glance.shortAction)}</div>` : ''}
+      <div class="hero-dims">${latest.dims.map(d => `<span class="dim-tag">${d.name.slice(0, 2)} ${d.score}</span>`).join('')}</div>
+    </div>
+    <div class="hero-arrow">→</div>
+  </a>` : '';
+
+  const cardRows = rest.map(info => {
+    const mtimeStr = info.mtime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(info.filename + ' ' + info.dateLabel + ' ' + (info.score ?? ''))}">
+      <div class="rc-score">${scoreBadge(info.score)}</div>
+      <div class="rc-body">
+        <div class="rc-date">${info.dateLabel}</div>
+        ${info.glance?.baseAction ? `<div class="rc-snippet">${esc(info.glance.baseAction.slice(0, 56))}${info.glance.baseAction.length > 56 ? '…' : ''}</div>` : `<div class="rc-snippet muted">${esc(info.filename)}</div>`}
+        <div class="rc-meta">${info.dims.map(d => `<span class="dim-tag">${d.name.slice(0, 1)}${d.score}</span>`).join('')} · ${mtimeStr}</div>
+      </div>
+    </a>`;
   }).join('\n');
 
   // 统计
@@ -113,7 +182,60 @@ function renderIndex(fileInfos) {
       color: #e2e8f0;
       min-height: 100vh;
     }
-    .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+    .container { max-width: 960px; margin: 0 auto; padding: 32px 20px 48px; }
+
+    /* Hero — 最新报告 */
+    .hero-card {
+      display: flex; align-items: center; gap: 20px;
+      background: linear-gradient(135deg, #1a2744 0%, #1e293b 60%, #172033 100%);
+      border: 1px solid #334155; border-radius: 18px;
+      padding: 24px 28px; margin-bottom: 28px;
+      text-decoration: none; color: inherit;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      position: relative; overflow: hidden;
+    }
+    .hero-card::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: linear-gradient(180deg, #f59e0b, #d97706);
+    }
+    .hero-card.dir-bullish::before { background: linear-gradient(180deg, #22c55e, #16a34a); }
+    .hero-card.dir-bearish::before { background: linear-gradient(180deg, #ef4444, #dc2626); }
+    .hero-card:hover { transform: translateY(-3px); border-color: #f59e0b55; box-shadow: 0 12px 40px #00000044; }
+    .hero-badge {
+      position: absolute; top: 12px; right: 16px;
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 1px;
+      color: #fbbf24; background: #f59e0b18; border: 1px solid #f59e0b33;
+      padding: 3px 10px; border-radius: 20px;
+    }
+    .hero-left { flex-shrink: 0; }
+    .hero-body { flex: 1; min-width: 0; }
+    .hero-date { font-size: 0.78rem; color: #64748b; letter-spacing: 0.5px; }
+    .hero-title { font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin: 4px 0 8px; }
+    .hero-action { font-size: 0.88rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 4px; }
+    .hero-short { font-size: 0.82rem; color: #94a3b8; }
+    .hero-dims { margin-top: 10px; }
+    .hero-arrow { font-size: 1.4rem; color: #475569; flex-shrink: 0; }
+
+    /* 报告卡片列表 */
+    .card-grid { display: flex; flex-direction: column; gap: 10px; }
+    .report-card {
+      display: flex; align-items: flex-start; gap: 14px;
+      background: #1e293b; border: 1px solid #2d3a4e; border-radius: 12px;
+      padding: 14px 16px; text-decoration: none; color: inherit;
+      transition: background 0.15s, border-color 0.15s;
+      border-left: 3px solid #475569;
+    }
+    .report-card.dir-bullish { border-left-color: #22c55e; }
+    .report-card.dir-bearish { border-left-color: #ef4444; }
+    .report-card.dir-neutral { border-left-color: #f59e0b; }
+    .report-card:hover { background: #243045; border-color: #475569; }
+    .report-card.hidden { display: none; }
+    .rc-score { flex-shrink: 0; }
+    .rc-body { flex: 1; min-width: 0; }
+    .rc-date { font-weight: 600; color: #e2e8f0; font-size: 0.95rem; }
+    .rc-snippet { font-size: 0.82rem; color: #94a3b8; margin-top: 4px; line-height: 1.45; }
+    .rc-snippet.muted { color: #64748b; font-family: monospace; font-size: 0.75rem; }
+    .rc-meta { font-size: 0.72rem; color: #64748b; margin-top: 6px; }
 
     /* Header */
     header {
@@ -215,16 +337,20 @@ function renderIndex(fileInfos) {
     }
     .sort-btn:hover { border-color: #f59e0b44; color: #e2e8f0; }
     .sort-btn.active { border-color: #f59e0b; color: #fbbf24; }
+    .section-label {
+      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.5px;
+      color: #64748b; margin: 8px 0 12px; font-weight: 600;
+    }
 
-    /* Score badge */
+    /* Search & Sort */
     .s-badge {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      padding: 3px 10px;
+      padding: 4px 12px;
       border-radius: 20px;
       font-weight: 700;
-      font-size: 1rem;
+      font-size: 1.05rem;
       border: 1px solid;
       white-space: nowrap;
     }
@@ -234,43 +360,6 @@ function renderIndex(fileInfos) {
       opacity: 0.85;
     }
 
-    /* Table */
-    .table-wrap {
-      background: #1e293b;
-      border: 1px solid #2d3a4e;
-      border-radius: 14px;
-      overflow: hidden;
-    }
-    table { width: 100%; border-collapse: collapse; }
-    th {
-      background: #1a2332;
-      text-align: left;
-      padding: 12px 14px;
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #64748b;
-      font-weight: 600;
-    }
-    td { padding: 12px 14px; border-top: 1px solid #2d3a4e; vertical-align: middle; }
-    tr { transition: background 0.15s; }
-    tr:hover td { background: #243045; }
-    td.file-score { width: 80px; }
-    td.file-name { min-width: 220px; }
-    td.file-name a {
-      color: #e2e8f0;
-      font-weight: 500;
-      text-decoration: none;
-      display: block;
-      line-height: 1.4;
-    }
-    td.file-name a:hover { color: #60a5fa; }
-    .date-label {
-      display: block;
-      font-size: 0.72rem;
-      color: #64748b;
-      margin-top: 2px;
-    }
     .dim-tag {
       display: inline-block;
       background: #1a2332;
@@ -281,11 +370,9 @@ function renderIndex(fileInfos) {
       color: #94a3b8;
       margin: 1px 2px;
     }
-    td.file-dims { min-width: 160px; }
-    td.file-size, td.file-time { color: #94a3b8; font-size: 0.82rem; white-space: nowrap; }
 
-    /* Hidden rows */
-    .hidden { display: none; }
+    /* Hidden */
+    .hidden { display: none !important; }
 
     /* Footer */
     footer {
@@ -309,13 +396,12 @@ function renderIndex(fileInfos) {
     .empty code { background: #1a2332; padding: 2px 8px; border-radius: 4px; }
 
     @media (max-width: 768px) {
-      .container { padding: 24px 16px; }
+      .container { padding: 20px 14px; }
       header h1 { font-size: 1.5rem; }
       .stats { gap: 8px; }
       .stat-card { padding: 12px 16px; min-width: 80px; }
-      td.file-size, th:nth-child(4) { display: none; }
-      td.file-time, th:nth-child(5) { display: none; }
-      td.file-dims, th:nth-child(3) { display: none; }
+      .hero-card { flex-direction: column; align-items: flex-start; padding: 20px; }
+      .hero-arrow { display: none; }
     }
   </style>
 </head>
@@ -338,16 +424,12 @@ function renderIndex(fileInfos) {
 
     ${total > 0 ? `
     <div class="toolbar">
-      <input type="text" class="search-box" id="search" placeholder="🔍 搜索报告（文件名、日期、评分...）" oninput="filterTable()">
+      <input type="text" class="search-box" id="search" placeholder="🔍 搜索日期、评分、操作…" oninput="filterCards()">
       <button class="sort-btn active" id="sort-date" onclick="setSort('date')">📅 日期</button>
       <button class="sort-btn" id="sort-score" onclick="setSort('score')">📊 评分</button>
     </div>
-    <div class="table-wrap"><table>
-      <thead><tr>
-        <th>评分</th><th>文件名</th><th>维度</th><th>大小</th><th>修改时间</th>
-      </tr></thead>
-      <tbody id="tbody">${rows}</tbody>
-    </table></div>` : `<div class="empty">
+    ${heroHtml}
+    ${rest.length ? `<div class="section-label">历史报告</div><div class="card-grid" id="card-grid">${cardRows}</div>` : ''}` : `<div class="empty">
       <div class="icon">📭</div>
       <p>暂无分析报告<br>运行 <code>node dist/index.js analysis --md</code> 生成第一份</p>
     </div>`}
@@ -358,17 +440,14 @@ function renderIndex(fileInfos) {
   </div>
 
   <script>
-    // 搜索过滤
-    function filterTable() {
+    function filterCards() {
       const q = document.getElementById('search').value.toLowerCase();
-      const rows = document.querySelectorAll('#tbody tr');
-      for (const row of rows) {
-        const text = row.textContent.toLowerCase();
-        row.classList.toggle('hidden', q && !text.includes(q));
-      }
+      document.querySelectorAll('.report-card').forEach(card => {
+        const text = (card.getAttribute('data-search') || card.textContent || '').toLowerCase();
+        card.classList.toggle('hidden', q && !text.includes(q));
+      });
     }
 
-    // 排序
     let sortMode = 'date';
     function setSort(mode) {
       sortMode = mode;
@@ -378,20 +457,20 @@ function renderIndex(fileInfos) {
     }
 
     function doSort() {
-      const tbody = document.getElementById('tbody');
-      const rows = Array.from(tbody.querySelectorAll('tr'));
-      rows.sort((a, b) => {
+      const grid = document.getElementById('card-grid');
+      if (!grid) return;
+      const cards = Array.from(grid.querySelectorAll('.report-card'));
+      cards.sort((a, b) => {
         if (sortMode === 'date') {
-          const da = a.querySelector('.date-label')?.textContent || '';
-          const db = b.querySelector('.date-label')?.textContent || '';
-          return db.localeCompare(da); // 倒序（最新在前）
+          const da = a.querySelector('.rc-date')?.textContent || '';
+          const db = b.querySelector('.rc-date')?.textContent || '';
+          return db.localeCompare(da);
         }
-        // 评分排序
         const sa = parseInt(a.querySelector('.s-badge')?.textContent) || 0;
         const sb = parseInt(b.querySelector('.s-badge')?.textContent) || 0;
-        return sb - sa; // 高分在前
+        return sb - sa;
       });
-      for (const row of rows) tbody.appendChild(row);
+      for (const c of cards) grid.appendChild(c);
     }
   </script>
 </body>
@@ -404,6 +483,9 @@ function renderArticle(mdFilename, rawMarkdown) {
   const dateLabel = mdFilename.replace('goldrush-analysis-', '').replace('.md', '');
   const scoreInfo = extractScore(rawMarkdown);
   const dims = extractDimensionScores(rawMarkdown);
+  const breakdown = extractScoreBreakdown(rawMarkdown);
+  const glance = extractQuickGlance(rawMarkdown);
+
   const scoreHtml = scoreInfo ? `<div class="score-gauge">
     <div class="sg-circle" style="background:conic-gradient(${scoreInfo.score >= 75 ? '#22c55e' : scoreInfo.score >= 55 ? '#f59e0b' : '#ef4444'} ${scoreInfo.score * 3.6}deg, #1e293b ${scoreInfo.score * 3.6}deg)">
       <div class="sg-inner">
@@ -421,6 +503,31 @@ function renderArticle(mdFilename, rawMarkdown) {
     else if (pct < 75) c = '#f59e0b';
     return `<div class="dim-bar-row"><span class="dim-name">${d.name}</span><div class="dim-bar-bg"><div class="dim-bar-fill" style="width:${pct}%;background:${c}"></div></div><span class="dim-val">${d.score}</span></div>`;
   }).join('');
+
+  const waterfallHtml = breakdown ? `<div class="sidebar-block">
+    <div class="sb-title">评分构成</div>
+    <div class="waterfall">${renderScoreWaterfall(breakdown)}</div>
+  </div>` : '';
+
+  const glanceHtml = (glance.baseAction || glance.shortAction) ? `<div class="glance-bar">
+    ${scoreInfo ? `<div class="gb-item gb-score">${scoreInfo.score}<span>/100</span></div>` : ''}
+    ${scoreInfo ? `<div class="gb-item gb-dir">${scoreInfo.direction === 'bullish' ? '📈 偏多' : scoreInfo.direction === 'bearish' ? '📉 偏空' : '➡️ 中性'}</div>` : ''}
+    ${glance.baseAction ? `<div class="gb-item"><span class="gb-label">基准 ${esc(glance.baseProb)}</span>${esc(glance.baseAction)}</div>` : ''}
+    ${glance.shortAction ? `<div class="gb-item"><span class="gb-label">短期</span>${esc(glance.shortAction)}</div>` : ''}
+  </div>` : '';
+
+  // 从 h2 提取目录
+  const tocItems = [];
+  for (const m of rawMarkdown.matchAll(/^## (.+)$/gm)) {
+    const title = m[1].trim();
+    if (title.startsWith('📊 评分构成')) continue;
+    const id = 'sec-' + tocItems.length;
+    tocItems.push({ title, id });
+  }
+  const tocHtml = tocItems.length > 1 ? `<nav class="sidebar-block toc">
+    <div class="sb-title">目录</div>
+    ${tocItems.map(t => `<a href="#${t.id}" class="toc-link">${esc(t.title)}</a>`).join('')}
+  </nav>` : '';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -534,6 +641,48 @@ function renderArticle(mdFilename, rawMarkdown) {
     .dim-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
     .dim-val { width: 24px; text-align: right; color: #64748b; }
 
+    /* Sidebar blocks */
+    .sidebar-block { margin-top: 20px; padding-top: 16px; border-top: 1px solid #1e293b; }
+    .sb-title { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 1.2px; color: #64748b; margin-bottom: 10px; font-weight: 600; }
+
+    /* Score waterfall */
+    .waterfall { display: flex; flex-direction: column; gap: 6px; }
+    .wf-row {
+      background: #131c2e; border: 1px solid #1e293b; border-radius: 8px;
+      padding: 8px 10px; font-size: 0.72rem;
+    }
+    .wf-row.wf-sub { background: #1a2332; border-color: #334155; }
+    .wf-row.wf-final { border-color: #f59e0b44; background: #1f2937; }
+    .wf-step { font-weight: 600; color: #e2e8f0; }
+    .wf-detail { color: #64748b; margin-top: 2px; font-size: 0.68rem; }
+    .wf-meta { display: flex; gap: 8px; margin-top: 4px; align-items: center; }
+    .wf-delta { font-weight: 700; font-size: 0.78rem; }
+    .wf-delta.up { color: #22c55e; }
+    .wf-delta.down { color: #ef4444; }
+    .wf-delta.neutral { color: #94a3b8; }
+    .wf-total { color: #fbbf24; font-weight: 700; margin-left: auto; }
+
+    /* TOC */
+    .toc { display: flex; flex-direction: column; gap: 4px; }
+    .toc-link {
+      color: #94a3b8; text-decoration: none; font-size: 0.78rem;
+      padding: 4px 8px; border-radius: 6px; transition: background 0.15s, color 0.15s;
+    }
+    .toc-link:hover { background: #1e293b; color: #f59e0b; }
+
+    /* Quick glance bar */
+    .glance-bar {
+      display: flex; flex-wrap: wrap; gap: 12px 20px;
+      background: linear-gradient(135deg, #1a2744, #1e293b);
+      border: 1px solid #334155; border-radius: 14px;
+      padding: 16px 20px; margin-bottom: 28px;
+    }
+    .gb-item { font-size: 0.85rem; color: #cbd5e1; line-height: 1.45; flex: 1; min-width: 140px; }
+    .gb-item.gb-score { font-size: 1.8rem; font-weight: 800; color: #f1f5f9; flex: 0; min-width: auto; }
+    .gb-item.gb-score span { font-size: 0.9rem; color: #64748b; font-weight: 500; }
+    .gb-item.gb-dir { flex: 0; min-width: auto; align-self: center; font-weight: 600; }
+    .gb-label { display: block; font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+
     /* Main content */
     .article-main {
       flex: 1;
@@ -557,7 +706,12 @@ function renderArticle(mdFilename, rawMarkdown) {
     }
 
     #content { font-size: 1rem; color: #cbd5e1; }
-    #content h2 { font-size: 1.3rem; color: #f1f5f9; margin: 28px 0 12px; }
+    #content h2 {
+      font-size: 1.15rem; color: #f1f5f9; margin: 32px 0 14px;
+      padding: 10px 14px; background: #131c2e; border-radius: 10px;
+      border-left: 3px solid #f59e0b; scroll-margin-top: 80px;
+    }
+    #content h2:first-child { margin-top: 0; }
     #content h3 { font-size: 1.1rem; color: #e2e8f0; margin: 22px 0 10px; }
     #content h4 { font-size: 1.05rem; color: #e2e8f0; margin: 18px 0 8px; }
     #content p { margin: 10px 0; }
@@ -619,11 +773,14 @@ function renderArticle(mdFilename, rawMarkdown) {
   <div class="article-layout">
     <aside class="sidebar">
       ${scoreHtml}
-      ${dimRows ? `<div style="border-top:1px solid #1e293b;padding-top:16px">${dimRows}</div>` : ''}
+      ${dims.length ? `<div class="sidebar-block"><div class="sb-title">四维度</div>${dimRows}</div>` : ''}
+      ${waterfallHtml}
+      ${tocHtml}
     </aside>
     <div class="article-main">
+      ${glanceHtml}
       <div class="article-header">
-        <h1>${esc(dateLabel)} 黄金投资研究</h1>
+        <h1>${esc(dateLabel)} 黄金投资日报</h1>
         <div class="meta">${esc(mdFilename)}</div>
       </div>
       <div id="content"></div>
@@ -635,7 +792,18 @@ function renderArticle(mdFilename, rawMarkdown) {
 
   <script>
     const md = \`${esc(mdContent(rawMarkdown))}\`;
-    document.getElementById('content').innerHTML = DOMPurify.sanitize(marked.parse(md));
+    const tocIds = ${JSON.stringify(tocItems.map(t => t.id))};
+    const tocTitles = ${JSON.stringify(tocItems.map(t => t.title))};
+
+    let html = DOMPurify.sanitize(marked.parse(md));
+    // 为 h2 注入锚点 id，便于目录跳转
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const h2s = wrap.querySelectorAll('h2');
+    h2s.forEach((h2, i) => {
+      if (tocIds[i]) h2.id = tocIds[i];
+    });
+    document.getElementById('content').innerHTML = wrap.innerHTML;
   </script>
 </body>
 </html>`;
