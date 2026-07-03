@@ -1,24 +1,25 @@
 {
-  "llm": {
-    "provider": "opencode-go",
-    "models": {
-      "dataCollector": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "validator": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "technical": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "fundamental": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "sentiment": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "fund": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "rebuttal": { "providerID": "opencode-go", "modelID": "glm-5.1" },
-      "orchestrator": { "providerID": "opencode-go", "modelID": "glm-5.1" }
-    }
+  "models": {
+    "dataCollector": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "validator": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "technical": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "fundamental": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "sentiment": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "fund": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "rebuttal": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" },
+    "orchestrator": { "providerID": "opencode-go", "modelID": "deepseek-v4-flash" }
   },
   "search": {
-    "engines": {
-      "exa": { "enabled": false },
-      "opencode": { "enabled": true }
-    }
+    "tavilyApiKey": "",
+    "defaultResults": 5,
+    "cacheMinutes": 5
   },
-  "database": { "path": "./data/goldrush.db", "autoSnapshot": true },
-  "investment": { "horizon": "all", "platform": "alipay" },
-  "output": { "language": "zh-CN", "format": "table" }
+  "database": {
+    "path": "./data/goldrush.db"
+  },
+  "investment": {
+    "defaultHorizon": "all",
+    "stopLossRange": [3, 5],
+    "maxTailRiskIndex": 20
+  }
 }

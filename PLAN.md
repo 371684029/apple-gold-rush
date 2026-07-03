@@ -10,7 +10,7 @@
 | 包管理 | pnpm |
 | LLM | opencode Go 套餐（`@opencode-ai/sdk`） |
 | 交互 | CLI（Commander.js） |
-| 数据获取 | **双引擎：Exa API（英文/金融数据）+ opencode websearch（中文数据）** |
+| 数据获取 | **Tavily（联网金融搜索）+ opencode websearch（fallback）** |
 | 投资视角 | **双视角：短期（日线级别）+ 中长期（周/月线级别）** |
 | 核心品种 | 短期：黄金ETF场内(518880)；中长期：ETF联接(000216/002610)、积存金 |
 
@@ -60,8 +60,8 @@ GoldRush 同时覆盖**短期**和**中长期**两个视角，一份报告双轨
    │      │     │      │
    │  ┌───┴─────┴──┐   │
    │  │ 混合搜索层  │   │
-   │  │ Exa API  ←→ opencode │
-   │  │ (英文/金融) (中文)  │
+│  │ Tavily ←→ opencode   │
+│  │ (主引擎)  (fallback) │
    │  └───┬─────┬──┘   │
    │      │     │       │
    └──────┼─────┼───────┘
@@ -74,7 +74,7 @@ GoldRush 同时覆盖**短期**和**中长期**两个视角，一份报告双轨
 
 **架构变化**：
 - 新增 **基金面Agent**：专门分析支付宝平台黄金基金品种、溢价折价、费率对比
-- 新增 **混合搜索层**：Exa API 负责英文/金融数据，opencode websearch 负责中文数据
+- 新增 **搜索层**：Tavily 负责联网金融数据搜索，opencode websearch 作为兜底 fallback
 - 数据采集Agent 增加 **信息验证** 子流程：多源交叉验证 + 来源分级
 - 技术面Agent 产出 **双轨分析**：短期（日线）+ 中长期（周线）两套指标
 - 综合编排Agent 输出 **双轨策略**：短期入场/止损 + 中长期定投/加减仓
@@ -149,106 +149,96 @@ const structured = await client.session.prompt({
 
 ---
 
-## 3.5 混合搜索架构（Exa + opencode）
+## 3.5 搜索架构（Tavily + opencode fallback）
 
-### 为什么需要双引擎？
+### 为什么选择 Tavily 单引擎？
 
-| 需求 | Exa 擅长 | opencode websearch 擅长 |
-|------|----------|------------------------|
-| 英文金融数据 | ✅ 专业金融分类、SEC文报 | ❌ 中文搜索引擎为主 |
-| 中文A股/基金数据 | ❌ 覆盖弱 | ✅ 东方财富/天天基金等 |
-| 结构化输出 | ✅ 原生支持 JSON Schema | ❌ 需要LLM解析 |
-| Highlights（token节省） | ✅ 10x压缩，只返回相关片段 | ❌ 返回全文需LLM提取 |
-| 新闻搜索 | ✅ 有专门 news 分类 | ✅ 中文新闻覆盖好 |
+初始方案评估过 Exa + opencode 双引擎路由，但实际实现后发现 Tavily 单引擎已满足全部需求：
+
+| 需求 | Tavily | opencode websearch (fallback) |
+|------|--------|------------------------------|
+| 英文金融数据 | ✅ 内置 `finance` topic，覆盖美联储/COMEX | ❌ 中文引擎为主 |
+| 中文A股/基金数据 | ✅ 中文搜索覆盖好 | ✅ 兜底备用 |
+| 结构化输出 | ✅ Tavily 原生返回结构化 content | ❌ 需LLM提取 |
+| Token 节省 | ✅ AI 摘要，只返回相关内容 | ❌ 返回全文 |
+| 新闻搜索 | ✅ 内置新闻搜索 | ✅ 备用 |
 | 免费额度 | ✅ 1000请求/月 | ✅ opencode Go 套餐内含 |
 
-### 搜索路由策略
+**结论：放弃双引擎路由，采用 Tavily 单引擎 + opencode websearch 作为兜底 fallback。** 降低架构复杂度，减少维护成本。
 
-| 数据类型 | 搜索引擎 | 搜索方式 | 原因 |
-|---------|---------|---------|------|
-| 国际金价 (XAU/USD) | **双搜** | Exa `financial report` + opencode 中文搜索 | 交叉验证 |
-| COMEX 期货 | **Exa** | `financial report` 分类 | 英文数据更准 |
-| 美联储/美债/TIPS | **Exa** | `financial report` 分类 | 官方英文数据 |
-| 上海金 Au99.99 | **opencode** | 中文搜索 | 中文数据源覆盖好 |
-| 黄金ETF净值 (518880) | **opencode** | 中文搜索 | 天天基金/东方财富 |
-| 黄金基金净值 (000216等) | **opencode** | 中文搜索 | 天天基金 |
-| 基金费率/溢价 | **opencode** | 中文搜索 | 支付宝/天天基金 |
-| 美元指数 DXY | **Exa** | `financial report` | 英文数据更准 |
-| 地缘风险 (英文) | **Exa** | `news` 分类 + deep search | 英文新闻质量高 |
-| 地缘风险 (中文) | **opencode** | 中文搜索 | 国内视角不可少 |
-| 央行购金 (世金协) | **Exa** | `research paper` 分类 | 世金协是英文来源 |
-| 央行购金 (国内报道) | **opencode** | 中文搜索 | 国内解读 |
-| 金矿股/GDX | **Exa** | `financial report` | 英文数据更全 |
+### 搜索策略
 
-### Exa API 集成方式
+| 数据类型 | 搜索方式 | 说明 |
+|---------|---------|------|
+| 国际金价 (XAU/USD) | Tavily `finance` topic | Tavily 直接查询 |
+| COMEX 期货 | Tavily `finance` topic | Tavily 覆盖 |
+| 美联储/美债/TIPS | Tavily `finance` topic | Tavily 覆盖 |
+| 上海金 Au99.99 | Tavily 中文搜索 | Tavily 中文覆盖好 |
+| 黄金ETF净值 (518880) | Tavily 中文搜索 | Tavily 中文覆盖好 |
+| 黄金基金净值 (000216等) | Tavily 中文搜索 | Tavily 中文覆盖好 |
+| 基金费率/溢价 | Tavily 中文搜索 | Tavily 中文覆盖好 |
+| 美元指数 DXY | Tavily `finance` topic | Tavily 覆盖 |
+| 地缘风险 | Tavily 新闻搜索 | Tavily 中英文兼顾 |
+| 央行购金 | Tavily 新闻搜索 | Tavily 中英文兼顾 |
+| 金矿股/GDX | Tavily `finance` topic | Tavily 覆盖 |
+
+失败降级：任何搜索失败时自动 fallback 到 opencode websearch。
+
+### Tavily 集成方式
 
 ```typescript
-import Exa from "exa-js"
+import { tavily } from '@tavily/core'
 
-const exa = new Exa(process.env.EXA_API_KEY)
+const client = tavily({ apiKey: process.env.TAVILY_API_KEY })
 
-// 实时金价搜索（fast模式，~450ms）
-const goldPrice = await exa.search("gold spot price XAUUSD today", {
-  type: "fast",
-  category: "financial report",
-  numResults: 5,
-  contents: {
-    highlights: true,
-    maxCharacters: 1400
-  }
-})
-
-// 深度研究搜索（deep模式，复杂查询）
-const fedAnalysis = await exa.search("Federal Reserve interest rate impact on gold 2026", {
-  type: "deep",
-  category: "financial report",
-  numResults: 10,
-  contents: {
-    highlights: true,
-    maxCharacters: 2000
-  },
-  outputSchema: {
-    type: "object",
-    properties: {
-      summary: { type: "string" },
-      rateDecision: { type: "string" },
-      goldImpact: { type: "string" },
-      sources: { type: "array", items: { type: "string" } }
-    }
-  }
+// 金融数据搜索（内置 finance topic，自动提取关键内容）
+const result = await client.search("gold spot price XAUUSD today", {
+  maxResults: 5,
+  topic: "finance",
+  searchDepth: "basic",
 })
 
 // 新闻搜索
-const newsResults = await exa.search("gold price geopolitical risk", {
-  type: "auto",
-  category: "news",
-  numResults: 8,
-  contents: {
-    highlights: true,
-    maxCharacters: 1000
-  }
+const newsResult = await client.search("gold price geopolitical risk", {
+  maxResults: 5,
+  topic: "news",
+  searchDepth: "basic",
 })
+
+// 搜索结果自动包含 title, url, content, publishedDate
 ```
 
 ### 搜索路由实现
 
 ```typescript
 // src/data/search-router.ts
-async function search(query: string, options: SearchOptions): Promise<SearchResult[]> {
-  const { engine, category, needStructure } = options
+// 当前实现使用单一搜索引擎 Tavily（@tavily/core）。
+// 未配置 TAVILY_API_KEY 时自动降级为空结果（不抛错）。
+export class SearchRouter {
+  private client: TavilyClient | null;
 
-  if (engine === 'exa' || engine === 'both') {
-    const exaResults = await searchWithExa(query, category, needStructure)
-    results.push(...exaResults)
+  constructor(tavilyApiKey: string) {
+    this.client = tavilyApiKey ? tavily({ apiKey: tavilyApiKey }) : null;
   }
 
-  if (engine === 'opencode' || engine === 'both') {
-    const ocResults = await searchWithOpencode(query)
-    results.push(...ocResults)
-  }
+  async search(query: string, options = {}): Promise<SearchResult[]> {
+    if (!this.client) return [];
 
-  // 去重 + 来源标注
-  return deduplicateAndGrade(results)
+    const res = await this.client.search(query, {
+      maxResults: options.numResults ?? 5,
+      topic: 'finance',
+      searchDepth: 'basic',
+    });
+
+    return res.results.map(r => ({
+      title: r.title,
+      url: r.url,
+      snippet: r.content,
+      engine: 'tavily',
+      publishedDate: r.publishedDate,
+      sourceGrade: gradeSource(hostnameOf(r.url)),
+    }));
+  }
 }
 ```
 
@@ -356,7 +346,7 @@ CREATE TABLE scenario_features (
 
 2. 历史数据初始化（首次运行）：
    - goldrush init-history
-   - 通过 Exa + opencode 拉取最近60天历史数据
+   - 通过 opencode websearch 拉取最近60天历史数据
    - 填充 gold_prices 和 fund_nav 表
 
 3. 分析报告自动存档：
@@ -365,7 +355,7 @@ CREATE TABLE scenario_features (
 
 4. 搜索缓存：
    - 相同查询5分钟内从缓存返回
-   - 减少重复搜索，节省 Exa 额度和 opencode 调用
+   - 减少重复搜索，节省 API 调用次数
 ```
 
 ### 历史数据在分析中的使用
@@ -583,8 +573,8 @@ D:\ai\goldrush\
 │   │   ├── rebuttal.ts         # 强制反驳Agent（独立session，系统找看空论据）
 │   │   └── orchestrator.ts     # 综合编排Agent（含情景分析+尾部风险+校准注入）
 │   ├── data/
-│   │   ├── search-router.ts    # 搜索路由（Exa + opencode 双引擎调度）
-│   │   ├── exa-client.ts       # Exa API 客户端封装
+│   │   ├── search-router.ts    # 搜索路由（Tavily 主引擎 + opencode fallback）
+│   │   └── search-router.ts    # Tavily 搜索客户端封装（@tavily/core）
 │   │   ├── opencode-search.ts   # opencode websearch 客户端封装
 │   │   └── cache.ts            # 搜索缓存层（内存 + SQLite）
 │   ├── db/
@@ -691,11 +681,11 @@ goldrush daily                    # 每日金评（适合定时任务）
     │
     ▼
 数据采集Agent（deepseek-v4-flash）
-    │  双引擎搜索（Exa + opencode）：
-    │    Exa: "XAUUSD spot price today" → financial report 分类
-    │    opencode: "国际金价 伦敦金 今日行情" → 中文搜索
-    │    Exa: "gold ETF 518880 NAV" → financial report
-    │    opencode: "黄金ETF 518880 最新净值 涨跌幅" → 中文搜索
+    │  Tavily 搜索（opencode websearch fallback）：
+    │    Tavily: "XAUUSD spot price today" → finance topic
+    │    opencode: "国际金价 伦敦金 今日行情" → 中文搜索 (fallback)
+    │    Tavily: "gold ETF 518880 NAV" → finance topic
+    │    opencode: "黄金ETF 518880 最新净值 涨跌幅" → 中文搜索 (fallback)
     │    ...共6-8组搜索
     │  structured output: { london, shanghai, etf, ... }
     │
@@ -723,9 +713,9 @@ goldrush daily                    # 每日金评（适合定时任务）
     │
     ▼
 Step 1: 数据采集 + 验证（deepseek-v4-flash）
-    │  双引擎搜索（Exa + opencode 按路由策略分发）
-    │  Exa: 英文金融数据（美联储/美债/COMEX/CFTC等）
-    │  opencode: 中文数据（上海金/基金净值/国内报道等）
+    │  Tavily 搜索（opencode websearch fallback）
+    │  Tavily: 全局搜索（finance topic, 中英文兼顾）
+    │  opencode: 中文数据（上海金/基金净值/国内报道等）(fallback)
     │  部分关键数据双搜交叉验证
     │  交叉验证 → MarketData（附可信度标注）
     │
@@ -1417,9 +1407,9 @@ const etfFundHours = [
 | 项目初始化 | pnpm init, tsconfig, 依赖安装 |
 | CLI 框架 | Commander.js, 注册子命令 |
 | Agent 基类 | 封装 `@opencode-ai/sdk`，提供 createSession/prompt/structuredPrompt/cleanup |
-| Exa 客户端 | 封装 `exa-js`，实现搜索路由（Exa / opencode 双引擎） |
+| Tavily 客户端 | 封装 `@tavily/core`，实现 Tavily + opencode fallback 搜索 |
 | SQLite 初始化 | 建表、迁移脚本、基础 CRUD |
-| 数据采集Agent | 搜索多源金价数据（Exa + opencode 双搜） |
+| 数据采集Agent | 搜索多源金价数据（Tavily + opencode fallback） |
 | 验证Agent | 交叉验证 + 来源分级 + 可信度标注 |
 | price 命令 | 串联数据采集 → 验证 → 自动存快照 → 格式化输出 |
 | snapshot 命令 | 手动保存数据快照 |
@@ -1465,7 +1455,7 @@ const etfFundHours = [
 | 估值水位 | 基于历史数据的百分位计算 |
 | 定投提醒 | 根据估值水位生成定投建议 |
 | npm scripts | 配置定时任务脚本 |
-| 可靠性优化 | Exa/opencode 搜索失败自动降级 |
+| 可靠性优化 | Tavily/opencode 搜索失败自动降级 |
 
 ---
 
@@ -1475,7 +1465,7 @@ const etfFundHours = [
 |------|------|------|
 | `commander` | CLI 框架 | runtime |
 | `@opencode-ai/sdk` | LLM 调用 + websearch | runtime |
-| `exa-js` | Exa 搜索 API（英文/金融数据） | runtime |
+| `@tavily/core` | Tavily 搜索 API（联网金融数据） | runtime |
 | `better-sqlite3` | SQLite 数据库（历史数据存储） | runtime |
 | `chalk` | 终端颜色 | runtime |
 | `cli-table3` | 终端表格 | runtime |
@@ -1597,7 +1587,7 @@ const etfFundHours = [
 1. **opencode SDK 日志级别**：需要确认 SDK 是否支持静默模式（不输出 server 启动日志），避免污染 CLI 输出
 2. **websearch 工具可用性**：需要确认通过 SDK 创建的 session 是否自动启用 websearch 权限
 3. **并发控制**：四维度分析是否可以真正并行（SDK session 是否支持并行 prompt），还是需要串行
-4. **Exa API Key**：需要注册 Exa 账号获取 API Key（免费1000请求/月），配置到环境变量 `EXA_API_KEY`
-5. **Exa 中文数据覆盖**：需要实测 Exa 对中文金融数据（上海金、基金净值等）的覆盖质量，决定路由策略是否需要调整
+4. **Tavily API Key**：需要注册 Tavily 账号获取 API Key（免费1000请求/月），配置到环境变量 `TAVILY_API_KEY`
+5. **中文金融数据覆盖**：需要实测 Tavily 对中文金融数据（上海金、基金净值等）的覆盖质量，决定是否需要 opencode fallback 增强
 6. **支付宝基金数据**：基金净值/费率数据可能需要天天基金网页爬取，websearch 能否覆盖
-7. **历史数据初始化**：`goldrush init-history` 拉取60天历史数据时，Exa 和 opencode 的免费额度是否够用
+7. **历史数据初始化**：`goldrush init-history` 拉取60天历史数据时，Tavily 和 opencode 的免费额度是否够用

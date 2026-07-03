@@ -12,7 +12,7 @@
 
 - Node.js >= 20
 - opencode CLI 已安装且可用（`opencode run` 能正常调用）
-- （可选）Exa API Key — 用于英文金融数据搜索
+- （可选）Tavily API Key — 用于联网金融数据搜索
 
 ### 安装
 
@@ -25,12 +25,12 @@ npm run build
 ### 配置（可选）
 
 ```bash
-# Exa API（英文金融数据，不配也能跑，会降级只用 opencode 搜索）
-export EXA_API_KEY=your_exa_api_key_here
+# Tavily API（联网金融数据搜索，不配也能跑，会降级为空结果）
+export TAVILY_API_KEY=your_tavily_api_key_here
 
 # 或者写到 .env 文件
 cp .env.example .env
-# 编辑 .env 填入你的 EXA_API_KEY
+# 编辑 .env 填入你的 TAVILY_API_KEY
 ```
 
 ### 运行
@@ -83,8 +83,8 @@ goldrush analysis
 | `goldrush analysis -H short` | 仅短期视角（日线/入场止损） | P1 |
 | `goldrush analysis -H mid` | 仅中长期视角（周线/定投加减仓） | P1 |
 | `goldrush analysis --json` | JSON 格式输出 | P1 |
-| `goldrush analysis --save` | 保存报告到文件（JSON） | P1 |
-| `goldrush analysis --md` | 保存 Markdown 投资日报到 docs/（供 server.cjs 文档站展示） | P1 |
+| `goldrush analysis --save` | 保存报告到文件 (JSON) | P1 |
+| `goldrush analysis --md` | 保存报告为 Markdown 到 docs/ 目录 | P1 |
 | `goldrush fund` | 黄金基金对比（费率/溢价/定投信号） | P1 |
 | `goldrush calibrate` | 回测校准（历史准确率统计） | P1 |
 | `goldrush calibrate --days 90` | 回顾 90 天 | P1 |
@@ -107,7 +107,7 @@ Commander.js (命令路由)
 Orchestrator (编排层)
     │
     ├──→ 数据采集 Agent (deepseek-v4-flash)
-    │     双引擎搜索: Exa API + opencode websearch
+    │     搜索: Tavily + opencode websearch (fallback)
     │     交叉验证 + 来源分级 (A/B/C)
     │
     ├──→ 四维度分析 (glm-5.1 × 4)
@@ -133,10 +133,10 @@ Orchestrator (编排层)
 
 | 数据类型 | 搜索引擎 | 原因 |
 |---------|---------|------|
-| 国际金价 XAU/USD | 双搜 | 交叉验证 |
-| COMEX/美联储/美债 | Exa | 英文金融数据更准 |
-| 上海金/ETF/基金 | opencode | 中文数据源覆盖好 |
-| 央行购金/地缘风险 | 双搜 | 中英文视角互补 |
+| 国际金价 XAU/USD | Tavily | 金融分类搜索 |
+| COMEX/美联储/美债 | Tavily | 英文金融数据覆盖好 |
+| 上海金/ETF/基金 | Tavily + opencode fallback | 中文数据源覆盖好 |
+| 央行购金/地缘风险 | Tavily | 中英文兼顾 |
 
 ### 信息可靠性五道防线
 
@@ -271,7 +271,7 @@ goldRush/
 │   │   ├── rebuttal.ts       # 强制反驳 Agent
 │   │   └── orchestrator.ts   # 综合编排 Agent
 │   ├── data/
-│   │   ├── exa-client.ts     # Exa API 封装
+│   │   ├── search-router.ts  # Tavily 搜索封装及路由
 │   │   ├── opencode-search.ts# opencode 搜索封装
 │   │   └── search-router.ts  # 搜索路由器
 │   ├── db/
@@ -310,7 +310,7 @@ goldRush/
 | 语言 | TypeScript | 类型安全 |
 | CLI | Commander.js | 成熟稳定 |
 | LLM | opencode CLI (`opencode run -m`) | Go 套餐 $10/月封顶 |
-| 搜索(英文) | Exa API | 金融分类、highlights 压缩 |
+| 搜索(联网) | Tavily | 金融分类搜索、内容提取 |
 | 搜索(中文) | opencode websearch | 中文数据源覆盖好 |
 | 数据库 | SQLite (better-sqlite3) | 零配置、本地、够用 |
 | 终端输出 | chalk + cli-table3 | 表格+颜色 |
@@ -358,4 +358,4 @@ npm run lint
 - LLM 分析存在固有局限，请结合自身判断做出决策
 - 数据依赖搜索结果，可能存在延迟或偏差
 - 建议积累 20 天以上数据后再使用 `calibrate` 命令
-- Exa API 免费额度 1000 次/月，每次 analysis 约消耗 8-12 次
+- Tavily API 免费额度 1000 次/月，每次 analysis 约消耗 8-12 次搜索

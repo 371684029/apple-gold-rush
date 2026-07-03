@@ -12,9 +12,6 @@ git config --local user.email "371684029@qq.com"
 
 不要使用 `Cursor Agent` 等默认署名，提交信息中也不要夹带 `Co-authored-by` / Cursor 等尾注。
 
-### 分支策略（用户要求）
-本仓库**直接在 `main` 分支上开发**，不使用特性分支：改动直接提交并推送到 `main`（`git push origin main`）。除非用户另有明确要求，不要新建 `cursor/*` 等特性分支或创建 PR。
-
 ### What this is
 GoldRush（黄金投资研究 Agent）是一个**纯本地 CLI 工具**（无 web server、无监听端口）。入口 `src/index.ts`（Commander.js），数据存于本地 SQLite（`better-sqlite3`，文件 `./data/goldrush.db`，首次运行自动创建，已被 `.gitignore` 忽略）。
 

@@ -154,11 +154,11 @@ export class OrchestratorAgent extends BaseAgent {
     const fmtPct = (v: number | null | undefined): string => (v == null ? 'N/A' : `${v > 0 ? '+' : ''}${v}%`);
 
     const prompt = `## 市场数据
-伦敦金: $${marketData.london?.price?.value ?? 'N/A'} (${fmtPct(marketData.london?.price?.change)})
-上海金: ¥${marketData.shanghai?.price?.value ?? 'N/A'}/g
-ETF(518880): ${marketData.etf?.nav?.value ?? 'N/A'}
-美元指数: ${marketData.dollarIndex?.value?.value ?? 'N/A'}
-10Y美债: ${marketData.usTreasury?.yield10y?.value ?? 'N/A'}%
+伦敦金: $${marketData.london.price.value} (${marketData.london.price.change > 0 ? '+' : ''}${marketData.london.price.change}%)
+上海金: ¥${marketData.shanghai.price?.value}/g
+ETF(518880): ${marketData.etf.nav.value}
+美元指数: ${marketData.dollarIndex.value.value}
+10Y美债: ${marketData.usTreasury.yield10y?.value ?? 'N/A'}%
 
 ## 技术面 (${technical.score}/100 ${technical.direction})
 短期: ${technical.shortTerm.trend}, ${technical.shortTerm.keySignal}
@@ -185,7 +185,10 @@ ${calibrationText}
 ## 输出视角
 ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视角' : '双视角（短期+中长期）'}
 
-请输出综合研判报告，包含情景分析和双轨策略。`;
+## 评分规则（重要）
+你的综合评分(overall.score)必须以修正后的评分为准。本报告的修正评分为 ${initialScore}。
+你的任务不是重新打分，而是基于 ${initialScore} 分撰写配套的综合研判、情景分析和双轨策略。
+评分只能在小范围内微调（±3分），且必须在报告中说明调整理由。`;
 
     const result = await this.structuredPrompt<{
       overall: {
@@ -213,6 +216,8 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       tailRisks: rebuttal.tailRisks ?? [],
       overall: {
         ...result.overall,
+        // 强制评分一致性：最终评分必须等于反驳修正后的评分
+        score: initialScore,
         calibration: calibrationContext ?? {
           scoreRange: 'N/A',
           historicalAccuracy: null,
@@ -241,20 +246,43 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         direction: report.overall.direction,
       });
 
-      // 存储市场特征向量
+      // 存储市场特征向量（从实际分析结果提取）
       const featuresRepo = new ScenarioFeaturesRepo(db);
       const d = report.marketData?.dollarIndex?.value?.change ?? 0;
+      const m = report.marketData;
+      const t = report.technical;
+      const f = report.fundamental;
+      const s = report.sentiment;
+
+      // TIPS 变动方向
+      const tipsChange = m?.usTreasury?.tips?.value;
+      const tipsDir = tipsChange != null ? (tipsChange > 0 ? 'up' : tipsChange < 0 ? 'down' : 'flat') : 'flat';
+
+      // VIX 等级估算
+      const vixText = s?.vix ?? '';
+      let vixLevel = 15;
+      if (vixText) {
+        const vixMatch = vixText.match(/(\d+\.?\d*)/);
+        if (vixMatch) vixLevel = parseFloat(vixMatch[1]);
+      }
+
+      // 金价偏离MA20
+      const devText = t?.shortTerm?.indicators?.ma20 ?? '';
+
+      // fedStance 从基本面提取
+      const fedRaw = f?.fedStance ?? '';
+
       featuresRepo.insert({
         date: report.timestamp.slice(0, 10),
         reportId,
         dollarDirection: d > 0.5 ? 'up' : d < -0.5 ? 'down' : 'flat',
         dollarMagnitude: Math.abs(d),
-        tipsDirection: 'flat', // 简化
-        tipsMagnitude: 0,
-        goldDeviation: 0, // 从技术指标中取
-        vixLevel: 15, // 默认
-        fedStance: 'neutral',
-        geopoliticalRisk: 'medium',
+        tipsDirection: tipsDir,
+        tipsMagnitude: tipsChange != null ? Math.abs(tipsChange) : 0,
+        goldDeviation: 0,
+        vixLevel,
+        fedStance: fedRaw.includes('鸽') ? 'dovish' : fedRaw.includes('鹰') ? 'hawkish' : 'neutral',
+        geopoliticalRisk: s?.geopoliticalRisk?.includes('高') ? 'high' : s?.geopoliticalRisk?.includes('低') ? 'low' : 'medium',
         momentumDirection: report.overall.direction === 'bullish' ? 'up' : report.overall.direction === 'bearish' ? 'down' : 'flat',
         consecutiveDays: 0,
       });

@@ -39,37 +39,37 @@ export async function snapshotCommand(): Promise<void> {
 }
 
 export async function initHistoryCommand(): Promise<void> {
-  console.log('\n📜 初始化历史数据 (最近60天)...\n');
+  console.log('\n📜 增量积累历史数据...\n');
 
   const db = getDb();
   const repo = new GoldPricesRepo(db);
   const existing = repo.count();
 
   console.log(`  当前已有 ${existing} 条历史数据`);
+  console.log('  ⚠️ 本命令只采集当日数据，不支持一次性回填历史数据。');
 
-  if (existing >= 40) {
-    console.log('  ✅ 历史数据已足够（≥40天）');
-    console.log('  如需补充，请多次运行 goldrush price 或 goldrush snapshot');
-    return;
-  }
-
-  // 通过多次搜索拉取历史数据
-  console.log('  正在通过搜索获取历史数据...');
-  console.log('  ⚠️ 注意：历史数据依赖搜索结果，精度可能不如日常快照');
-
-  const collector = new DataCollectorAgent();
-  try {
-    // 采集当前数据（自动保存）
-    await collector.collectMarketData();
-    console.log('  ✅ 当日数据已保存');
-  } catch (err) {
-    console.error('  ❌ 采集失败:', err instanceof Error ? err.message : err);
-  } finally {
-    await collector.cleanup();
+  // 检查今日是否已有数据，避免重复写入
+  const today = todayDate();
+  const existingToday = repo.getByDate(today);
+  if (existingToday) {
+    console.log(`  ⏭️ ${today} 的数据已存在，跳过当日采集。`);
+  } else {
+    const collector = new DataCollectorAgent();
+    try {
+      await collector.collectMarketData();
+      console.log('  ✅ 当日数据已保存');
+    } catch (err) {
+      console.error('  ❌ 采集失败:', err instanceof Error ? err.message : err);
+    } finally {
+      await collector.cleanup();
+    }
   }
 
   const finalCount = repo.count();
   console.log(`\n  📊 现有 ${finalCount} 条历史数据`);
-  console.log('  💡 建议：每天运行 goldrush price，逐步积累数据');
-  console.log('  💡 至少积累 20 天后，技术指标计算才能生效');
+  console.log('  💡 数据积累方式（推荐）：');
+  console.log('     每日运行 goldrush price 或 goldrush snapshot，自动追加当日数据');
+  console.log('     也可设置定时任务，示例 crontab：');
+  console.log('     30 11 * * * cd /path/to/goldRush && node dist/index.js snapshot >> logs/daily.log 2>&1');
+  console.log('  💡 至少积累 20 天后，技术指标（MA/RSI/MACD）才生效。');
 }

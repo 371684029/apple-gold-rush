@@ -51,18 +51,20 @@
 
 **结论：opencode Go 套餐。** 每次 analysis 要 5+ 次 LLM 调用，按量付费会很贵。
 
-### 决策 4：搜索引擎 — 为什么需要 Exa？
+### 决策 4：搜索引擎 — 为什么选择 Tavily？
 
-初始方案只用 opencode 内置 websearch，但发现：
+初始方案评估过 Exa + opencode websearch 双引擎，但实际使用后发现：
 
-| 问题 | opencode websearch | Exa API |
-|------|-------------------|---------|
-| 英文金融数据（美联储/COMEX） | 中文搜索引擎为主，英文覆盖弱 | 有 `financial report` 分类，专业 |
-| 结构化输出 | 需 LLM 从网页提取 | 原生支持 JSON Schema |
-| Token 效率 | 返回全文，LLM 自己提炼 | Highlights 10x 压缩，只返回相关片段 |
-| 中文数据（上海金/基金净值） | ✅ 覆盖好 | ❌ 覆盖弱 |
+| 对比维度 | Exa + opencode 双引擎 | Tavily 单引擎 |
+|---------|----------------------|--------------|
+| 英文金融数据 | ✅ Exa 有 financial report 分类 | ✅ Tavily 内置 finance topic |
+| 中文数据 | ✅ opencode websearch | ✅ 中文搜索覆盖好 |
+| 架构复杂度 | ❌ 双引擎路由、两套 API、两套额度管理 | ✅ 统一 API，统一客户端 |
+| 维护成本 | ❌ exa-js + opencode sdk 两套依赖 | ✅ 仅 @tavily/core |
+| 免费额度 | Exa 1000/月 + opencode Go 套餐 $10 | Tavily 1000/月，够用 |
+| Token 效率 | Exa highlights 10x 压缩，但双引擎总体调用翻倍 | ✅ 单引擎 + AI 摘要，等效压缩 |
 
-**结论：双引擎互补。** Exa 负责英文/金融数据，opencode websearch 负责中文数据，关键数据双搜交叉验证。
+**结论：采用 Tavily 单引擎。** 双引擎的收益（中英文分类覆盖）不足以抵消架构复杂度和维护成本。Tavily 内置的 `finance` topic 和内容提取能力可覆盖全部金融数据搜索场景，opencode websearch 作为兜底 fallback。
 
 ### 决策 5：为什么要本地历史数据？
 
@@ -136,7 +138,7 @@ LLM 天然会编造数据。我们的防线：
 │ 数据采集层   │  │  分析层       │  │  输出层      │
 │             │  │              │  │             │
 │ 双引擎搜索  │  │ 四维度分析    │  │ 终端格式化  │
-│ Exa + OC    │──│ +本地指标    │──│ JSON/表格   │
+│ Tavily + OC │──│ +本地指标    │──│ JSON/表格   │
 │ +交叉验证   │  │ +LLM推理     │  │ +自动存档   │
 │ +SQLite     │  │              │  │             │
 └─────────────┘  └──────────────┘  └─────────────┘
@@ -158,7 +160,7 @@ LLM 天然会编造数据。我们的防线：
               │              │              │
               ▼              ▼              ▼
         ┌─────────┐   ┌──────────┐   ┌──────────┐
-        │  Exa    │   │ opencode │   │ 双搜     │
+        │ Tavily  │   │ opencode │   │ 双搜     │
         │  API    │   │ websearch │   │ 交叉验证 │
         └────┬────┘   └─────┬────┘   └────┬─────┘
              │              │              │
@@ -292,7 +294,7 @@ LLM 天然会编造数据。我们的防线：
    opencode SDK 创建 session
         │
         ├──→ 数据采集Agent (deepseek-v4-flash)
-        │     · 6-8 组搜索（Exa + opencode 按路由分发）
+        │     · 6-8 组搜索（Tavily + opencode fallback）
         │     · 结构化提取 MarketData
         │     · ~2-3 次 LLM 调用
         │
@@ -325,7 +327,7 @@ LLM 天然会编造数据。我们的防线：
               · 输出双轨策略报告
 
    总计 LLM 调用：~8-10 次
-   总计搜索请求：~10-15 次（Exa + opencode）
+   总计搜索请求：~10-15 次（Tavily + opencode fallback）
 ```
 
 ---
@@ -357,7 +359,7 @@ LLM 天然会编造数据。我们的防线：
 │ 第3道：中英文双搜               │
 │ 重要数据同时搜索中英文来源：    │
 │ ·中文：金十/东方财富/华尔街见闻│
-│ ·英文：Exa financial report     │
+│ ·英文：Tavily finance topic     │
 │ ·避开单一信息茧房              │
 └────────────┬────────────────────┘
              │
@@ -510,8 +512,8 @@ goldrush daily              # 每日金评（适合定时任务）
 │  · websearch（中文数据搜索）            │
 ├─────────────────────────────────────────┤
 │            搜索层                        │
-│  Exa API（英文/金融）+ opencode（中文） │
-│  搜索路由器：按数据类型分发到最优引擎   │
+│  Tavily（联网金融搜索）+ opencode（中文 fallback） │
+│  搜索路由器：Tavily 主引擎 + opencode 兜底         │
 ├─────────────────────────────────────────┤
 │            计算层                        │
 │  本地技术指标（MA/RSI/MACD/布林带）     │
@@ -546,7 +548,7 @@ P0 (2-3天)                        P1 (3-5天)                     P2 (2-3天)  
 · 项目初始化                     · 技术指标本地计算              · history 命令               · daily 每日金评
 · CLI 框架                       · 四维度Agent + prompt          · macro 命令                · 估值水位计算
 · Agent 基类                     · analysis 命令                · technical 命令            · 定投提醒
-· Exa 客户端                     · fund 命令                    · sentiment 命令             · 定时任务脚本
+· Tavily 客户端                  · fund 命令                    · sentiment 命令             · 定时任务脚本
 · SQLite 初始化                  · --horizon 参数               · strategy 命令              · 搜索失败降级
 · 双引擎搜索路由                 · --json / --save              · 搜索缓存(SQLite)
 · price 命令                     · 双轨策略输出                 · 错误处理
@@ -562,8 +564,8 @@ P0 (2-3天)                        P1 (3-5天)                     P2 (2-3天)  
 |---|------------|------|---------|
 | 1 | opencode SDK 日志级别不确定 | CLI 输出可能被 server 日志污染 | 测试后决定是否需要静默模式 |
 | 2 | SDK session 是否支持并行 prompt | 影响四维度分析是否可并行 | 如不支持则串行执行，增加延迟 |
-| 3 | Exa 中文金融数据覆盖质量 | 上海金/基金净值可能搜不好 | 中文数据 fallback 到 opencode |
-| 4 | Exa 免费额度（1000/月） | 每次分析约8-12次搜索，月约80次可覆盖 | 控制搜索频率，配搜索缓存 |
+| 3 | Tavily 中文金融数据覆盖质量 | 上海金/基金净值可能搜不好 | 中文数据 fallback 到 opencode websearch |
+| 4 | Tavily 免费额度（1000/月） | 每次分析约8-12次搜索，月约80次可覆盖 | 控制搜索频率，配搜索缓存 |
 | 5 | opencode Go 套餐 5h/$12 周限额 | 高频使用可能触发限速 | 配置调用预算管理 |
 | 6 | 支付宝基金数据获取 | 天天基金网页可能有反爬 | 优先 websearch，备选 API |
 | 7 | 历史数据初始化 | 60天历史需要较多搜索额度 | 分批拉取，错峰执行 |

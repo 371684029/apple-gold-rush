@@ -1,0 +1,139 @@
+// Markdown 投资日报格式化器
+//
+// 将一次 analysis 的完整报告渲染为人类可读的 Markdown「日报」，
+// 用于 `goldrush analysis --md` 导出存档/分享。纯函数、无副作用、无 ANSI 颜色，
+// 对 LLM 可能缺失的字段做了防御（缺失显示 N/A）。
+
+import type { GoldAnalysisReport } from '../types/analysis.js';
+import type { Horizon } from '../types/config.js';
+
+function dirText(d: string | undefined): string {
+  switch (d) {
+    case 'bullish': return '📈 偏多';
+    case 'bearish': return '📉 偏空';
+    case 'neutral': return '➡️ 中性';
+    default: return d ?? 'N/A';
+  }
+}
+
+function pct(v: number | null | undefined): string {
+  return v == null ? 'N/A' : `${v}%`;
+}
+
+function na<T>(v: T | null | undefined): string {
+  return v == null || v === '' ? 'N/A' : String(v);
+}
+
+function horizonText(h: Horizon): string {
+  return h === 'short' ? '仅短期视角' : h === 'mid' ? '仅中长期视角' : '双视角（短期 + 中长期）';
+}
+
+/** 将完整分析报告渲染为 Markdown 日报 */
+export function formatReportMarkdown(report: GoldAnalysisReport, horizon: Horizon = 'all'): string {
+  const { overall, technical, fundamental, sentiment, fund, rebuttal } = report;
+  const tailRisks = report.tailRisks ?? rebuttal?.tailRisks ?? [];
+  const lines: string[] = [];
+
+  lines.push('# 🥇 GoldRush 黄金投资日报');
+  lines.push('');
+  lines.push(`> 生成时间：${na(report.timestamp)}　|　视角：${horizonText(horizon)}　|　数据置信度：${na(report.dataQuality?.overallConfidence)}%`);
+  lines.push('');
+
+  // 综合研判
+  lines.push('## 综合研判');
+  lines.push('');
+  lines.push(`- 综合评分：**${na(overall?.score)}/100**（${dirText(overall?.direction)}）`);
+  const cal = overall?.calibration;
+  if (cal && cal.historicalAccuracy != null) {
+    lines.push(`- 校准参考：${na(cal.scoreRange)} 区间历史准确率 ${Math.round(cal.historicalAccuracy * 100)}%（${na(cal.systematicBias)}，样本 ${na(cal.sampleSize)}）`);
+  }
+  lines.push('');
+
+  // 情景分析
+  const sc = overall?.scenarios;
+  if (sc) {
+    lines.push('## ⚡ 情景分析');
+    lines.push('');
+    lines.push('| 情景 | 概率 | 描述 | 操作 | 触发条件 |');
+    lines.push('|------|------|------|------|----------|');
+    lines.push(`| 基准 | ${pct(sc.base?.probability)} | ${na(sc.base?.description)} | ${na(sc.base?.action)} | - |`);
+    lines.push(`| 上行 | ${pct(sc.upside?.probability)} | ${na(sc.upside?.description)} | ${na(sc.upside?.action)} | ${na(sc.upside?.trigger)} |`);
+    lines.push(`| 下行 | ${pct(sc.downside?.probability)} | ${na(sc.downside?.description)} | ${na(sc.downside?.action)} | ${na(sc.downside?.trigger)} |`);
+    lines.push('');
+  }
+
+  // 四维度摘要
+  lines.push('## 📈 四维度摘要');
+  lines.push('');
+  lines.push('| 维度 | 评分 | 方向 | 摘要 |');
+  lines.push('|------|------|------|------|');
+  lines.push(`| 技术面 | ${na(technical?.score)}/100 | ${dirText(technical?.direction)} | ${na(technical?.summary)} |`);
+  lines.push(`| 基本面 | ${na(fundamental?.score)}/100 | ${dirText(fundamental?.direction)} | ${na(fundamental?.summary)} |`);
+  lines.push(`| 情绪面 | ${na(sentiment?.score)}/100 | ${dirText(sentiment?.direction)} | ${na(sentiment?.summary)} |`);
+  lines.push(`| 基金面 | - | - | 估值水位：${na(fund?.valuation?.level)} |`);
+  lines.push('');
+
+  // 强制反驳
+  if (rebuttal) {
+    lines.push('## 🔴 强制反驳');
+    lines.push('');
+    lines.push(`- 反驳强度：**${na(rebuttal.rebuttalStrength)}**　|　看空力度：${na(rebuttal.bearScore)}/100`);
+    for (const p of (rebuttal.bearPoints ?? []).slice(0, 5)) {
+      lines.push(`  - 看空论据：${na(p.point)}（${pct(p.probability)} 概率）`);
+    }
+    for (const v of (rebuttal.bullVulnerabilities ?? []).slice(0, 3)) {
+      lines.push(`  - 看多漏洞：${na(v.vulnerability)}`);
+    }
+    if (rebuttal.adjustedScore != null) {
+      lines.push(`- 评分修正：调整为 **${rebuttal.adjustedScore} 分**（${na(rebuttal.netEffect)}）`);
+    }
+    lines.push('');
+  }
+
+  // 短期策略
+  if (horizon !== 'mid' && overall?.shortTerm) {
+    const s = overall.shortTerm;
+    lines.push('## ⏱️ 短期策略（日线级别）');
+    lines.push('');
+    lines.push(`- 操作：${na(s.action)}`);
+    lines.push(`- 入场区间：${na(s.entryZone)}`);
+    lines.push(`- 目标：${na(s.target)}　|　止损：${na(s.stopLoss)}`);
+    lines.push(`- 推荐品种：${na(s.recommendedProduct)}`);
+    lines.push(`- ⚠️ 风险提示：${na(s.riskWarning)}`);
+    lines.push('');
+  }
+
+  // 中长期策略
+  if (horizon !== 'short' && overall?.midTerm) {
+    const m = overall.midTerm;
+    lines.push('## 📅 中长期策略（周线级别）');
+    lines.push('');
+    lines.push(`- 定投建议：${na(m.investAdvice?.dipInvest)}　|　仓位调整：${na(m.investAdvice?.positionAdjust)}`);
+    lines.push(`- 推荐基金：${na(m.investAdvice?.recommendedFund)}`);
+    lines.push(`- 支撑区：${na(m.keyLevels?.supportZone)}　|　阻力区：${na(m.keyLevels?.resistanceZone)}`);
+    lines.push(`- ⚠️ 风险提示：${na(m.riskWarning)}`);
+    lines.push('');
+  }
+
+  // 尾部风险
+  if (tailRisks.length > 0) {
+    lines.push('## ⚠️ 尾部风险');
+    lines.push('');
+    lines.push('| 概率 | 风险 | 影响 | 触发条件 | 对冲建议 |');
+    lines.push('|------|------|------|----------|----------|');
+    for (const r of tailRisks) {
+      lines.push(`| ${pct(r.probability)} | ${na(r.risk)} | ${na(r.impact)} | ${na(r.trigger)} | ${na(r.mitigation)} |`);
+    }
+    const noRisk = tailRisks.reduce((p, r) => p * (1 - (r.probability ?? 0) / 100), 1);
+    lines.push('');
+    lines.push(`综合尾部风险指数：**${((1 - noRisk) * 100).toFixed(1)}%**`);
+    lines.push('');
+  }
+
+  lines.push('---');
+  lines.push('');
+  lines.push('> 本报告由 GoldRush 自动生成，仅供投资研究参考，**不构成投资建议**。');
+  lines.push('');
+
+  return lines.join('\n');
+}

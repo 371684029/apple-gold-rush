@@ -47,7 +47,7 @@ program
   .option('-H, --horizon <type>', '输出视角: short/mid/all', 'all')
   .option('--json', '输出 JSON 格式')
   .option('--save', '保存报告到文件 (JSON)')
-  .option('--md', '保存报告为 Markdown 日报（docs/ 目录）')
+  .option('--md', '保存报告为 Markdown 格式')
   .action(async (opts) => {
     const horizon = opts.horizon as 'short' | 'mid' | 'all';
     if (!['short', 'mid', 'all'].includes(horizon)) {

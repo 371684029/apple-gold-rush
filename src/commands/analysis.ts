@@ -6,6 +6,7 @@ import { TechnicalAgent, FundamentalAgent, SentimentAgent, FundAgent } from '../
 import { RebuttalAgent } from '../agents/rebuttal.js';
 import { OrchestratorAgent } from '../agents/orchestrator.js';
 import { header, separator, directionMark, scoreBar, changeColor, riskLevel, valuationMark, sessionMark } from '../utils/format.js';
+import { formatReportMarkdown } from '../utils/report-md.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
@@ -74,13 +75,13 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
     console.log(`\n💾 报告已保存到 ${filename}`);
   }
 
-  // 保存为 Markdown 日报（docs/ 目录，供 server.cjs 文档站展示）
+  // 保存为 Markdown 格式
   if (options.md) {
     const fs = await import('node:fs');
     const docsDir = 'docs';
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
     const filename = `${docsDir}/goldrush-analysis-${new Date().toISOString().slice(0, 10)}.md`;
-    const mdContent = renderReportMarkdown(report, options.horizon);
+    const mdContent = formatReportMarkdown(report, options.horizon);
     fs.writeFileSync(filename, mdContent, 'utf-8');
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
   }
@@ -183,211 +184,5 @@ function printReport(report: GoldAnalysisReport, horizon: Horizon): void {
 }
 
 /** 渲染报告为 Markdown 格式 */
-function renderReportMarkdown(report: GoldAnalysisReport, horizon: Horizon): string {
-  const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks, timestamp } = report;
-  const lines: string[] = [];
-
-  lines.push(`# 🥇 GoldRush 综合分析报告`);
-  lines.push(``);
-  lines.push(`**生成时间**: ${timestamp}`);
-  lines.push(`**视角**: ${horizon === 'short' ? '短期' : horizon === 'mid' ? '中长期' : '双视角（短期+中长期）'}`);
-  lines.push(``);
-  lines.push(`---`);
-  lines.push(``);
-
-  // 综合研判
-  const score = overall?.score ?? 'N/A';
-  const dirMap: Record<string, string> = { bullish: '📈 看多', bearish: '📉 看空', neutral: '➡️ 中性' };
-  lines.push(`## 🎯 综合研判`);
-  lines.push(``);
-  lines.push(`**评分**: ${score}/100`);
-  lines.push(`**方向**: ${dirMap[overall?.direction ?? 'neutral'] ?? overall?.direction}`);
-  lines.push(``);
-  if (overall?.calibration?.historicalAccuracy != null) {
-    lines.push(`**校准参考**: ${overall.calibration.scoreRange}区间历史准确率 ${Math.round(overall.calibration.historicalAccuracy * 100)}% (${overall.calibration.systematicBias})`);
-    lines.push(``);
-  }
-
-  // 情景分析
-  lines.push(`### ⚡ 情景分析`);
-  lines.push(``);
-  const scenarios = overall?.scenarios;
-  if (scenarios) {
-    lines.push(`| 情景 | 概率 | 描述 | 操作/触发 |`);
-    lines.push(`|------|------|------|-----------|`);
-    lines.push(`| **基准** | ${scenarios.base.probability}% | ${scenarios.base.description} | ${scenarios.base.action} |`);
-    lines.push(`| **上行** | ${scenarios.upside.probability}% | ${scenarios.upside.description} | 触发: ${scenarios.upside.trigger} |`);
-    lines.push(`| **下行** | ${scenarios.downside.probability}% | ${scenarios.downside.description} | 触发: ${scenarios.downside.trigger} |`);
-  } else {
-    lines.push(`情景数据暂不可用`);
-  }
-  lines.push(``);
-  lines.push(`---`);
-  lines.push(``);
-
-  // 四维度分析
-  lines.push(`## 📈 四维度分析`);
-  lines.push(``);
-
-  lines.push(`### 技术面 — ${technical.score}/100 — ${dirMap[technical.direction] ?? technical.direction}`);
-  lines.push(``);
-  lines.push(`${technical.summary}`);
-  lines.push(``);
-  lines.push(`**关键论点**:`);
-  for (const kp of technical.keyPoints) lines.push(`- ${kp}`);
-  lines.push(``);
-  lines.push(`**反面论据**:`);
-  for (const cp of technical.counterPoints) lines.push(`- ${cp}`);
-  lines.push(``);
-  if (technical.shortTerm) {
-    const st = technical.shortTerm;
-    lines.push(`**短期 (日线)**: 支撑 ${st.support} | 阻力 ${st.resistance} | 趋势: ${st.trend}`);
-    lines.push(`  - MA5: ${st.indicators.ma5} | MA20: ${st.indicators.ma20} | MACD: ${st.indicators.macd} | RSI: ${st.indicators.rsi}`);
-    lines.push(`  - 关键信号: ${st.keySignal}`);
-  }
-  if (technical.midTerm) {
-    const mt = technical.midTerm;
-    lines.push(`**中长期 (周线)**: 支撑 ${mt.support} | 阻力 ${mt.resistance} | 趋势: ${mt.trend}`);
-    lines.push(`  - MA20W: ${mt.indicators.ma20w} | MA60W: ${mt.indicators.ma60w} | MACD: ${mt.indicators.macd} | RSI: ${mt.indicators.rsi}`);
-    lines.push(`  - 关键信号: ${mt.keySignal}`);
-  }
-  lines.push(``);
-  lines.push(`**来源**: ${technical.sources.join(', ')}`);
-  lines.push(``);
-
-  lines.push(`### 基本面 — ${fundamental.score}/100 — ${dirMap[fundamental.direction] ?? fundamental.direction}`);
-  lines.push(``);
-  lines.push(`${fundamental.summary}`);
-  lines.push(``);
-  lines.push(`**关键论点**:`);
-  for (const kp of fundamental.keyPoints) lines.push(`- ${kp}`);
-  lines.push(``);
-  lines.push(`**反面论据**:`);
-  for (const cp of fundamental.counterPoints) lines.push(`- ${cp}`);
-  lines.push(``);
-  if (fundamental.dollarIndexEffect) lines.push(`- **美元指数**: ${fundamental.dollarIndexEffect}`);
-  if (fundamental.interestRateEffect) lines.push(`- **利率**: ${fundamental.interestRateEffect}`);
-  if (fundamental.inflationEffect) lines.push(`- **通胀**: ${fundamental.inflationEffect}`);
-  if (fundamental.fedStance) lines.push(`- **美联储**: ${fundamental.fedStance}`);
-  lines.push(``);
-  lines.push(`**来源**: ${fundamental.sources.join(', ')}`);
-  lines.push(``);
-
-  lines.push(`### 情绪面 — ${sentiment.score}/100 — ${dirMap[sentiment.direction] ?? sentiment.direction}`);
-  lines.push(``);
-  lines.push(`${sentiment.summary}`);
-  lines.push(``);
-  lines.push(`**关键论点**:`);
-  for (const kp of sentiment.keyPoints) lines.push(`- ${kp}`);
-  lines.push(``);
-  lines.push(`**反面论据**:`);
-  for (const cp of sentiment.counterPoints) lines.push(`- ${cp}`);
-  lines.push(``);
-  if (sentiment.centralBanks) lines.push(`- **央行购金**: ${sentiment.centralBanks}`);
-  if (sentiment.cftcPosition) lines.push(`- **CFTC持仓**: ${sentiment.cftcPosition}`);
-  if (sentiment.vix) lines.push(`- **VIX**: ${sentiment.vix}`);
-  if (sentiment.geopoliticalRisk) lines.push(`- **地缘风险**: ${sentiment.geopoliticalRisk}`);
-  if (sentiment.etfFlows) lines.push(`- **ETF资金流**: ${sentiment.etfFlows}`);
-  lines.push(``);
-  lines.push(`**来源**: ${sentiment.sources.join(', ')}`);
-  lines.push(``);
-
-  lines.push(`### 基金面 — 估值: ${fundAnalysis.valuation.level}`);
-  lines.push(``);
-  lines.push(`**判断依据**: ${fundAnalysis.valuation.indicator}`);
-  lines.push(`**操作建议**: ${fundAnalysis.valuation.action}`);
-  if (fundAnalysis.premiumDiscount) {
-    lines.push(`**溢价/折价**: ${fundAnalysis.premiumDiscount.current}% (${fundAnalysis.premiumDiscount.trend})`);
-    lines.push(`  - 建议: ${fundAnalysis.premiumDiscount.advice}`);
-  }
-  if (fundAnalysis.recommendation) {
-    lines.push(`**推荐**:`);
-    if (fundAnalysis.recommendation.longTerm) lines.push(`  - 长期: ${fundAnalysis.recommendation.longTerm}`);
-    if (fundAnalysis.recommendation.mediumTerm) lines.push(`  - 中期: ${fundAnalysis.recommendation.mediumTerm}`);
-    if (fundAnalysis.recommendation.dipBuy) lines.push(`  - 逢跌: ${fundAnalysis.recommendation.dipBuy}`);
-  }
-  lines.push(``);
-  lines.push(`---`);
-  lines.push(``);
-
-  // 强制反驳
-  lines.push(`## 🔴 强制反驳`);
-  lines.push(``);
-  lines.push(`**反驳强度**: ${rebuttal.rebuttalStrength} | **看空力度**: ${rebuttal.bearScore}/100`);
-  lines.push(``);
-  lines.push(`### 看空论据`);
-  for (const bp of rebuttal.bearPoints) {
-    lines.push(`- **${bp.point}** (${bp.probability}%概率)`);
-    lines.push(`  - 证据: ${bp.evidence}`);
-    lines.push(`  - 影响: ${bp.impact}`);
-  }
-  lines.push(``);
-  lines.push(`### 看多漏洞`);
-  for (const vul of rebuttal.bullVulnerabilities) {
-    lines.push(`- **${vul.vulnerability}**`);
-    if (vul.originalPoint) lines.push(`  - 原论点: ${vul.originalPoint}`);
-    if (vul.counterCondition) lines.push(`  - 反制条件: ${vul.counterCondition}`);
-  }
-  lines.push(``);
-  if (rebuttal.adjustedScore) {
-    lines.push(`**评分调整**: 初步 ${Math.round((technical.score + fundamental.score + sentiment.score) / 3)} → 修正 ${rebuttal.adjustedScore}`);
-  }
-  lines.push(``);
-  lines.push(`---`);
-  lines.push(``);
-
-  // 策略建议
-  if (horizon !== 'mid' && overall?.shortTerm) {
-    lines.push(`## ⏱️ 短期策略`);
-    lines.push(``);
-    lines.push(`| 项目 | 建议 |`);
-    lines.push(`|------|------|`);
-    lines.push(`| 操作 | ${overall.shortTerm.action} |`);
-    lines.push(`| 入场区间 | ${overall.shortTerm.entryZone} |`);
-    lines.push(`| 目标 | ${overall.shortTerm.target} |`);
-    lines.push(`| 止损 | ${overall.shortTerm.stopLoss} |`);
-    lines.push(`| 推荐品种 | ${overall.shortTerm.recommendedProduct} |`);
-    lines.push(`| ⚠️ 风险提示 | ${overall.shortTerm.riskWarning} |`);
-    lines.push(``);
-  }
-
-  if (horizon !== 'short' && overall?.midTerm) {
-    const mid = overall.midTerm;
-    lines.push(`## 📅 中长期策略`);
-    lines.push(``);
-    const dipMap: Record<string, string> = { increase: '加码定投', pause: '暂停定投', continue: '继续定投' };
-    const posMap: Record<string, string> = { add: '加仓', reduce: '减仓', hold: '维持仓位' };
-    lines.push(`| 项目 | 建议 |`);
-    lines.push(`|------|------|`);
-    lines.push(`| 定投操作 | ${dipMap[mid.investAdvice?.dipInvest] ?? mid.investAdvice?.dipInvest} |`);
-    lines.push(`| 仓位调整 | ${posMap[mid.investAdvice?.positionAdjust] ?? mid.investAdvice?.positionAdjust} |`);
-    lines.push(`| 推荐基金 | ${mid.investAdvice?.recommendedFund} |`);
-    lines.push(`| 支撑区 | ${mid.keyLevels?.supportZone} |`);
-    lines.push(`| 阻力区 | ${mid.keyLevels?.resistanceZone} |`);
-    lines.push(`| ⚠️ 风险提示 | ${mid.riskWarning} |`);
-    lines.push(``);
-  }
-
-  // 尾部风险
-  if (tailRisks.length > 0) {
-    lines.push(`## ⚠️ 尾部风险`);
-    lines.push(``);
-    for (const risk of tailRisks) {
-      lines.push(`### ${risk.probability}% — ${risk.risk}`);
-      lines.push(``);
-      lines.push(`- **影响**: ${risk.impact}`);
-      lines.push(`- **触发条件**: ${risk.trigger}`);
-      lines.push(`- **对冲措施**: ${risk.mitigation}`);
-      lines.push(``);
-    }
-    const noRisk = tailRisks.reduce((p, r) => p * (1 - r.probability / 100), 1);
-    const index = (1 - noRisk) * 100;
-    lines.push(`**综合尾部风险指数**: ${index.toFixed(1)}%`);
-    lines.push(``);
-  }
-
-  lines.push(`---`);
-  lines.push(`*报告由 GoldRush 自动生成，仅供投资研究参考，不构成投资建议*`);
-
-  return lines.join('\n');
-}
+// 委托 report-md.ts 中的规范渲染函数，消除重复实现
+const renderReportMarkdown = formatReportMarkdown;

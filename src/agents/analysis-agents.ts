@@ -6,8 +6,42 @@ import { getDb } from '../db/index.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { latestMA, latestRSI, rsiSignal, latestMACD, macdCross, latestBollinger, deviationFromMA } from '../indicators/index.js';
 import type { TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis } from '../types/analysis.js';
-import type { MarketData } from '../types/market.js';
+import type { MarketData, GoldPriceRecord } from '../types/market.js';
 import type { FundAnalysis } from '../types/fund.js';
+
+/**
+ * 将日线数据聚合为周线 OHLC。
+ * 周以 ISO 周一为界，返回每周的 [开盘, 最高, 最低, 收盘(周五)];
+ * 只有 >= 3 天数据的周才计入，避免周末异常。
+ */
+function aggregateWeekly(records: GoldPriceRecord[]): Array<{ weekStart: string; close: number }> {
+  const weekMap = new Map<string, { opens: number[]; highs: number[]; lows: number[]; closes: number[] }>();
+
+  for (const r of records) {
+    if (r.londonClose == null) continue;
+    // 计算 ISO 周一日期
+    const d = new Date(r.date + 'T00:00:00');
+    const day = d.getDay();
+    const monOffset = day === 0 ? -6 : 1 - day; // 周日=0 → 前推6天到周一
+    const mon = new Date(d);
+    mon.setDate(d.getDate() + monOffset);
+    const weekKey = mon.toISOString().slice(0, 10);
+
+    if (!weekMap.has(weekKey)) weekMap.set(weekKey, { opens: [], highs: [], lows: [], closes: [] });
+    const w = weekMap.get(weekKey)!;
+    w.opens.push(r.londonClose);
+    if (r.londonHigh != null) w.highs.push(r.londonHigh);
+    if (r.londonLow != null) w.lows.push(r.londonLow);
+    w.closes.push(r.londonClose);
+  }
+
+  const result: Array<{ weekStart: string; close: number }> = [];
+  for (const [weekStart, w] of weekMap) {
+    if (w.closes.length < 3) continue; // 跳过数据不足的周
+    result.push({ weekStart, close: w.closes[w.closes.length - 1] });
+  }
+  return result.sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
 
 /** 安全读取 MarketData 嵌套字段 */
 function safeVal<T>(fn: () => T, fallback: T): T {
@@ -100,9 +134,33 @@ export class TechnicalAgent extends BaseAgent {
         const dev = deviationFromMA(closes, 20);
         const latestDev = dev.filter((v): v is number => v !== null).pop() ?? null;
 
+        // —— 周线级别指标（从日线聚合计算） ——
+        let weeklyContext = '';
+        const weeklyCandles = aggregateWeekly(history);
+        const weeklyCloses = weeklyCandles.map(c => c.close);
+        if (weeklyCloses.length >= 4) {
+          const wMa20 = latestMA(weeklyCloses, Math.min(20, weeklyCloses.length));
+          const wMa60 = latestMA(weeklyCloses, Math.min(60, weeklyCloses.length));
+          const wRsi = latestRSI(weeklyCloses, 14);
+          const wMacd = latestMACD(weeklyCloses);
+          const wMacdCross = macdCross(weeklyCloses);
+          weeklyContext = `
+### 周线级别指标（从 ${weeklyCloses.length} 根周线聚合计算）
+- 周线数: ${weeklyCloses.length} 根
+- MA20W: ${wMa20?.toFixed(2) ?? '数据不足'}
+- MA60W: ${wMa60?.toFixed(2) ?? '数据不足'}
+- 周RSI(14): ${wRsi?.toFixed(1) ?? '数据不足'} ${wRsi ? rsiSignal(wRsi) : ''}
+- 周MACD: ${wMacd ? `MACD=${wMacd.macd?.toFixed(2)}, Signal=${wMacd.signal?.toFixed(2)}, Histogram=${wMacd.histogram?.toFixed(2)}` : '数据不足'}
+- 周MACD交叉: ${wMacdCross === 'golden' ? '金叉✅' : wMacdCross === 'dead' ? '死叉❌' : '无交叉'}
+`;
+        } else {
+          weeklyContext = `\n### 周线级别指标：周线数据不足（需至少4根周线，当前${weeklyCloses.length}根）`;
+        }
+
         indicatorContext = `
 ## 本地计算的技术指标（客观结果，可直接采信）
 
+### 日线级别指标
 - 当前价: $${londonPrice.toFixed(2)}
 - MA5: ${ma5?.toFixed(2) ?? '数据不足'}
 - MA20: ${ma20?.toFixed(2) ?? '数据不足'}
@@ -112,7 +170,8 @@ export class TechnicalAgent extends BaseAgent {
 - MACD交叉: ${macdCrossVal === 'golden' ? '金叉✅' : macdCrossVal === 'dead' ? '死叉❌' : '无交叉'}
 - 布林带: ${bb ? `上轨=${bb.upper?.toFixed(2)}, 中轨=${bb.middle?.toFixed(2)}, 下轨=${bb.lower?.toFixed(2)}, %B=${bb.percentB?.toFixed(2)}` : '数据不足'}
 - 偏离MA20: ${latestDev?.toFixed(2) ?? '数据不足'}%
-- 历史数据天数: ${history.length}天`;
+- 历史数据天数: ${history.length}天
+${weeklyContext}`;
       }
     } else {
       indicatorContext = '## 本地技术指标：历史数据不足（需20天以上），无法计算';
