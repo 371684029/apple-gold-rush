@@ -40,4 +40,22 @@ describe('loadConfig — 深合并与 llm.models 别名', () => {
     const cfg = loadConfig(cfgPath);
     expect(cfg.database.path).toBe('./custom/db.sqlite');
   });
+
+  it('GOLDRUSH_WEBHOOK_URL 环境变量覆盖 alerts', () => {
+    const prev = process.env.GOLDRUSH_WEBHOOK_URL;
+    const prevType = process.env.GOLDRUSH_WEBHOOK_TYPE;
+    process.env.GOLDRUSH_WEBHOOK_URL = 'https://example.com/hook';
+    process.env.GOLDRUSH_WEBHOOK_TYPE = 'dingtalk';
+    try {
+      const cfg = loadConfig(path.join(os.tmpdir(), 'nonexistent-goldrush.config.json'));
+      expect(cfg.alerts.webhookUrl).toBe('https://example.com/hook');
+      expect(cfg.alerts.webhookType).toBe('dingtalk');
+    } finally {
+      if (prev === undefined) delete process.env.GOLDRUSH_WEBHOOK_URL;
+      else process.env.GOLDRUSH_WEBHOOK_URL = prev;
+      if (prevType === undefined) delete process.env.GOLDRUSH_WEBHOOK_TYPE;
+      else process.env.GOLDRUSH_WEBHOOK_TYPE = prevType;
+      resetConfigCache();
+    }
+  });
 });

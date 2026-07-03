@@ -2,6 +2,7 @@
 
 import type { AnalysisReportRow } from '../db/reports.js';
 import type { GoldPricesRepo } from '../db/gold-prices.js';
+import { renderEquityCurveSvg } from './chart-svg.js';
 import { SCORE_BUCKETS } from './score-buckets.js';
 
 export interface BucketReturnStats {
@@ -178,6 +179,14 @@ export function formatTearsheetMarkdown(sheet: CalibrationTearsheet, periodLabel
   lines.push('');
   lines.push('## 模拟权益曲线');
   lines.push('');
+  if (sheet.equityCurve.length >= 2) {
+    lines.push('<div class="equity-chart">');
+    lines.push('');
+    lines.push(renderEquityCurveSvg(sheet.equityCurve));
+    lines.push('');
+    lines.push('</div>');
+    lines.push('');
+  }
   lines.push(`- **策略**（≥55 全投 / 45–54 半投 / <45 暂停）：累计 **${sheet.strategyTotalReturn >= 0 ? '+' : ''}${sheet.strategyTotalReturn.toFixed(2)}%**`);
   lines.push(`- **基准**（每期均投）：累计 **${sheet.benchmarkTotalReturn >= 0 ? '+' : ''}${sheet.benchmarkTotalReturn.toFixed(2)}%**`);
   lines.push('');

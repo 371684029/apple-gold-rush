@@ -9,6 +9,7 @@ import {
   formatTearsheetConsole,
   formatTearsheetMarkdown,
 } from '../utils/calibration-tearsheet.js';
+import { renderEquityCurveSvg } from '../utils/chart-svg.js';
 import { header, separator } from '../utils/format.js';
 import chalk from 'chalk';
 import type { CalibrateOptions } from '../types/config.js';
@@ -103,6 +104,12 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
     const latest = `${docsDir}/goldrush-calibration-latest.md`;
     fs.writeFileSync(dated, content, 'utf-8');
     fs.writeFileSync(latest, content, 'utf-8');
+    if (tearsheet.equityCurve.length >= 2) {
+      const svg = renderEquityCurveSvg(tearsheet.equityCurve);
+      const svgLatest = `${docsDir}/goldrush-calibration-equity-latest.svg`;
+      fs.writeFileSync(svgLatest, svg, 'utf-8');
+      console.log(`  📈 权益曲线 SVG: ${svgLatest}`);
+    }
     console.log(`\n  📝 Tearsheet 已写入 ${dated}`);
   }
 

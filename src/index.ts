@@ -10,6 +10,7 @@ import { snapshotCommand, initHistoryCommand } from './commands/snapshot.js';
 import { historyCommand } from './commands/history.js';
 import { diffCommand } from './commands/diff.js';
 import { digestCommand } from './commands/digest.js';
+import { notifyCommand } from './commands/notify.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -154,6 +155,24 @@ program
   .action(async (opts) => {
     try {
       digestCommand(parseInt(opts.days, 10) || 7, opts.md ?? false, opts.json ?? false);
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('notify')
+  .description('Webhook 告警（测试 / 每日任务结束）')
+  .option('--test', '发送测试消息')
+  .option('--daily', '每日分析结束后通知')
+  .option('--exit <n>', '分析退出码（与 --daily 配合）', '0')
+  .action(async (opts) => {
+    try {
+      await notifyCommand({
+        test: opts.test ?? false,
+        daily: opts.daily ?? false,
+        exitCode: parseInt(opts.exit, 10) || 0,
+      });
     } finally {
       closeDb();
     }

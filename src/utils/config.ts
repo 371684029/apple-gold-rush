@@ -73,6 +73,15 @@ export function loadConfig(configPath?: string): GoldRushConfig {
   if (process.env.TAVILY_API_KEY) {
     loaded.search.tavilyApiKey = process.env.TAVILY_API_KEY;
   }
+  if (process.env.GOLDRUSH_WEBHOOK_URL) {
+    loaded.alerts.webhookUrl = process.env.GOLDRUSH_WEBHOOK_URL;
+  }
+  if (process.env.GOLDRUSH_WEBHOOK_TYPE) {
+    const t = process.env.GOLDRUSH_WEBHOOK_TYPE;
+    if (t === 'dingtalk' || t === 'wecom' || t === 'generic') {
+      loaded.alerts.webhookType = t;
+    }
+  }
 
   config = loaded;
   return config;

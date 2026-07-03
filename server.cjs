@@ -10,6 +10,12 @@ const HOST = process.env.HOST || '127.0.0.1';
 const DOCS_DIR = path.resolve(__dirname, 'docs');
 const DOCS_ROOT = DOCS_DIR + path.sep;
 
+/** Markdown 渲染后 DOMPurify 选项（允许 Tearsheet 内嵌 SVG） */
+const MARKDOWN_PURIFY_OPTS = {
+  USE_PROFILES: { html: true, svg: true },
+  ADD_ATTR: ['xmlns', 'viewBox', 'role', 'aria-label'],
+};
+
 // ===== 评分提取 =====
 
 /** 从 Markdown 中提取评分和方向 */
@@ -789,6 +795,8 @@ function renderArticle(mdFilename, rawMarkdown) {
     #content h3 { font-size: 1.1rem; color: #e2e8f0; margin: 22px 0 10px; }
     #content h4 { font-size: 1.05rem; color: #e2e8f0; margin: 18px 0 8px; }
     #content p { margin: 10px 0; }
+    .equity-chart { margin: 20px 0; overflow-x: auto; }
+    .equity-chart svg { display: block; max-width: 100%; height: auto; border-radius: 8px; }
     #content strong { color: #f1f5f9; font-weight: 600; }
     #content a { color: #60a5fa; text-decoration: none; border-bottom: 1px solid #60a5fa33; }
     #content a:hover { border-bottom-color: #60a5fa; }
@@ -872,7 +880,7 @@ function renderArticle(mdFilename, rawMarkdown) {
     const tocIds = ${JSON.stringify(tocItems.map(t => t.id))};
     const tocTitles = ${JSON.stringify(tocItems.map(t => t.title))};
 
-    let html = DOMPurify.sanitize(marked.parse(md));
+    let html = DOMPurify.sanitize(marked.parse(md), MARKDOWN_PURIFY_OPTS);
     // 为 h2 注入锚点 id，便于目录跳转
     const wrap = document.createElement('div');
     wrap.innerHTML = html;

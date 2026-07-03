@@ -19,5 +19,12 @@
     "defaultHorizon": "all",
     "stopLossRange": [3, 5],
     "maxTailRiskIndex": 20
+  },
+  "alerts": {
+    "webhookUrl": "",
+    "webhookType": "generic",
+    "scoreSwingThreshold": 8,
+    "notifyOnSuccess": false,
+    "notifyOnFailure": true
   }
 }
