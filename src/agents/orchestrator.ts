@@ -154,13 +154,19 @@ export class OrchestratorAgent extends BaseAgent {
     };
 
     const fmtPct = (v: number | null | undefined): string => (v == null ? 'N/A' : `${v > 0 ? '+' : ''}${v}%`);
+    const safe = (v: unknown, fallback = 'N/A'): string => v == null ? fallback : String(v);
+    const londonVal = marketData.london?.price?.value;
+    const londonChg = marketData.london?.price?.change;
+    const shanghaiVal = marketData.shanghai?.price?.value;
+    const etfNavVal = marketData.etf?.nav?.value;
+    const dxyVal = marketData.dollarIndex?.value?.value;
 
     const prompt = `## 市场数据
-伦敦金: $${marketData.london.price.value} (${marketData.london.price.change > 0 ? '+' : ''}${marketData.london.price.change}%)
-上海金: ¥${marketData.shanghai.price?.value}/g
-ETF(518880): ${marketData.etf.nav.value}
-美元指数: ${marketData.dollarIndex.value.value}
-10Y美债: ${marketData.usTreasury.yield10y?.value ?? 'N/A'}%
+伦敦金: $${safe(londonVal)} (${londonChg != null ? (londonChg > 0 ? '+' : '') + londonChg + '%' : 'N/A'})
+上海金: ¥${safe(shanghaiVal)}/g
+ETF(518880): ${safe(etfNavVal)}
+美元指数: ${safe(dxyVal)}
+10Y美债: ${marketData.usTreasury?.yield10y?.value ?? 'N/A'}%
 
 ## 技术面 (${technical.score}/100 ${technical.direction})
 短期: ${technical.shortTerm.trend}, ${technical.shortTerm.keySignal}

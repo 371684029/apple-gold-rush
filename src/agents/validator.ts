@@ -146,7 +146,7 @@ export class ValidatorAgent extends BaseAgent {
     // ---------- 第4步：合并 LLM 结果 ----------
     if (llmAssessment) {
       // 将 LLM 发现的异常加入 warnings
-      for (const anomaly of llmAssessment.anomalies) {
+      for (const anomaly of llmAssessment.anomalies ?? []) {
         if (anomaly.severity === 'high') {
           warnings.push(`🔴 ${anomaly.field}: ${anomaly.issue}`);
         } else if (anomaly.severity === 'medium') {
@@ -171,7 +171,8 @@ export class ValidatorAgent extends BaseAgent {
     let overallConfidence: number;
     if (llmAssessment) {
       // 取本地置信度和 LLM 置信度的加权平均（LLM 权重0.4，本地权重0.6）
-      overallConfidence = Math.round(localConfidence * 0.6 + llmAssessment.llmConfidence * 0.4);
+      const llmConf = typeof llmAssessment.llmConfidence === 'number' && !Number.isNaN(llmAssessment.llmConfidence) ? llmAssessment.llmConfidence : 50;
+      overallConfidence = Math.round(localConfidence * 0.6 + llmConf * 0.4);
     } else {
       overallConfidence = localConfidence;
     }

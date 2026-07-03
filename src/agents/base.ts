@@ -1,12 +1,17 @@
-// Agent 基类 — 通过 opencode HTTP API 调用 LLM
+// Agent 基类 — 通过 opencode CLI（opencode run）调用 LLM
+// 使用 CLI 而非 HTTP API，因为 REST API 对当前模型存在挂死问题
+
+import { execSync } from 'child_process';
 import type { ModelConfig } from '../types/config.js';
 
-const OPENCODE_SERVER = process.env.OPENCODE_SERVER || 'http://localhost:16688';
-const OPENCODE_USERNAME = process.env.OPENCODE_SERVER_USERNAME || 'opencode';
-const OPENCODE_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || 'goldrush2026';
-
-function authHeader(): string {
-  return 'Basic ' + Buffer.from(`${OPENCODE_USERNAME}:${OPENCODE_PASSWORD}`).toString('base64');
+/**
+ * Escape a string for safe use in a shell echo statement.
+ * Wraps in single quotes and escapes any single quotes inside.
+ */
+function shellEcho(value: string): string {
+  // Replace single quotes with end-quote + escaped quote + start-quote
+  const escaped = value.replace(/'/g, "'\\''");
+  return `'${escaped}'`;
 }
 
 export interface AgentOptions {
@@ -26,82 +31,30 @@ export class BaseAgent {
     this.systemPrompt = options.systemPrompt ?? '';
   }
 
-  /** 创建新 session */
-  private async createSession(): Promise<string> {
-    const res = await fetch(`${OPENCODE_SERVER}/session`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': authHeader(),
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(`Agent ${this.name}: create session failed: ${res.status} ${await res.text()}`);
-    }
-
-    const data = await res.json() as { id: string };
-    return data.id;
-  }
-
-  /** 发送消息到 session，等待完整回复（带超时和重试） */
-  private async sendMessage(sessionId: string, content: string, system?: string): Promise<string> {
-    const body: Record<string, unknown> = {
-      providerID: this.model.providerID,
-      modelID: this.model.modelID,
-      parts: [{ type: 'text', text: content }],
-    };
-    if (system) {
-      body.system = system;
-    }
-
-    const maxRetries = 3;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const res = await fetch(`${OPENCODE_SERVER}/session/${sessionId}/message`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': authHeader(),
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(300_000), // 5 min timeout per request
-        });
-
-        if (!res.ok) {
-          throw new Error(`Agent ${this.name}: send message failed: ${res.status} ${await res.text()}`);
-        }
-
-        const data = await res.json() as { parts: Array<{ type: string; text?: string }> };
-        // 提取 text 类型的 parts 拼接成完整文本
-        const textParts = (data.parts || [])
-          .filter((p) => p.type === 'text' && p.text)
-          .map((p) => p.text!)
-          .join('\n');
-
-        if (!textParts.trim()) {
-          throw new Error(`Agent ${this.name}: empty response from LLM`);
-        }
-
-        return textParts;
-      } catch (err) {
-        const isLastAttempt = attempt === maxRetries;
-        if (isLastAttempt) throw err;
-        // 退避重试
-        const delay = attempt * 5000;
-        console.error(`  ⚠️ Agent ${this.name} attempt ${attempt} failed: ${err instanceof Error ? err.message : String(err)}. Retrying in ${delay / 1000}s...`);
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-
-    throw new Error(`Agent ${this.name}: all retries exhausted`);
-  }
-
-  /** 发送 prompt，获取文本回复 */
+  /** 通过 opencode CLI 发送 prompt，获取文本回复 */
   async prompt(content: string): Promise<string> {
-    const sessionId = await this.createSession();
-    const text = await this.sendMessage(sessionId, content, this.systemPrompt || undefined);
-    return text.trim();
+    const fullPrompt = this.systemPrompt
+      ? `${this.systemPrompt}\n\n---\n\n${content}`
+      : content;
+    const modelArg = `${this.model.providerID}/${this.model.modelID}`;
+
+    try {
+      const output = execSync(
+        `echo ${shellEcho(fullPrompt)} | opencode run -m ${shellEcho(modelArg)} 2>/dev/null`,
+        { timeout: 300_000, maxBuffer: 2 * 1024 * 1024 },
+      );
+      const text = output.toString('utf-8').trim();
+      if (!text) {
+        throw new Error(`Agent ${this.name}: empty response from LLM`);
+      }
+      return text;
+    } catch (err) {
+      if (err && typeof err === 'object' && 'stderr' in err) {
+        const stderr = (err as { stderr: Buffer }).stderr.toString('utf-8');
+        throw new Error(`Agent ${this.name} CLI error: ${stderr.slice(0, 500)}`);
+      }
+      throw err;
+    }
   }
 
   /** 发送 prompt，获取结构化 JSON 输出 */
@@ -207,7 +160,6 @@ export class BaseAgent {
         if (ch === '"') {
           if (inString) {
             // 检查这个 " 是否真的是字符串结束
-            // 如果后面跟的是 JSON 结构字符 (,:; 空格 } ]) 则是结束，否则是字符串内容
             const nextNonSpace = jsonStr.slice(i + 1).match(/\S/);
             const nextCh = nextNonSpace ? nextNonSpace[0] : '';
             if (nextCh === ',' || nextCh === '}' || nextCh === ']' || nextCh === ':' || nextCh === '') {
@@ -232,7 +184,6 @@ export class BaseAgent {
     const diag = getParseErrorDetail(cleaned);
 
     // 4. 最后兜底:把原始输出回喂给 LLM,要求自身修复 JSON 语法
-    // 常见原因:数组元素漏引号、字段值含裸百分号、字符串内嵌套未转义引号
     try {
       const repairPrompt =
         `你上一条回复不是合法 JSON,JSON.parse 失败于 ${diag}。\n` +
@@ -264,8 +215,7 @@ export class BaseAgent {
     throw new Error(`Agent ${this.name}: Failed to parse structured output.\n  JSON解析错误: ${diag}\n  前300字符: ${text.slice(0, 300)}`);
   }
 
-  /** 清理资源 (HTTP API 模式无需清理) */
   async cleanup(): Promise<void> {
-    // 每次 prompt 创建独立 session，无需清理
+    // CLI 模式无需清理
   }
 }
