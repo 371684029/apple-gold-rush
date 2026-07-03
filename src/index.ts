@@ -8,6 +8,7 @@ import { fundCommand } from './commands/fund.js';
 import { calibrateCommand } from './commands/calibrate.js';
 import { snapshotCommand, initHistoryCommand } from './commands/snapshot.js';
 import { historyCommand } from './commands/history.js';
+import { diffCommand } from './commands/diff.js';
 import { closeDb } from './db/index.js';
 import { loadConfig } from './utils/config.js';
 
@@ -45,8 +46,9 @@ program
   .command('analysis')
   .description('综合分析报告（默认输出双视角：短期 + 中长期）')
   .option('-H, --horizon <type>', '输出视角: short/mid/all', 'all')
-  .option('--json', '输出 JSON 格式')
-  .option('--save', '保存报告到文件 (JSON)')
+  .option('--json', '输出 JSON（默认 schema v1，含 manifest）')
+  .option('--json-legacy', 'JSON 仅输出报告本体，不含 manifest')
+  .option('--save', '保存报告到文件 (JSON schema v1)')
   .option('--md', '保存报告为 Markdown 格式')
   .action(async (opts) => {
     const horizon = opts.horizon as 'short' | 'mid' | 'all';
@@ -58,6 +60,7 @@ program
       const exitCode = await analysisCommand({
         horizon,
         json: opts.json ?? false,
+        jsonLegacy: opts.jsonLegacy ?? false,
         save: opts.save ?? false,
         md: opts.md ?? false,
       });
@@ -132,6 +135,18 @@ program
     }
     try {
       await historyCommand(type as 'prices' | 'reports', parseInt(opts.days, 10) || 30);
+    } finally {
+      closeDb();
+    }
+  });
+
+program
+  .command('diff <dateA> <dateB>')
+  .description('对比两日分析报告（评分/维度/情景概率变化）')
+  .option('--json', '输出 JSON')
+  .action(async (dateA: string, dateB: string, opts) => {
+    try {
+      diffCommand(dateA, dateB, opts.json ?? false);
     } finally {
       closeDb();
     }

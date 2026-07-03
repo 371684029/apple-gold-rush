@@ -54,6 +54,22 @@ export class ScenarioFeaturesRepo {
     return rows.map(mapRow);
   }
 
+  /** 获取指定日期的特征 */
+  getByDate(date: string): ScenarioFeature | undefined {
+    const row = this.db.prepare(`SELECT * FROM scenario_features WHERE date = ? ORDER BY id DESC LIMIT 1`).get(date) as Record<string, unknown> | undefined;
+    return row ? mapRow(row) : undefined;
+  }
+
+  /** 获取用于相似度匹配的历史特征（优先已回填） */
+  listForSimilarity(maxRows = 200): ScenarioFeature[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM scenario_features
+      ORDER BY date DESC
+      LIMIT ?
+    `).all(maxRows) as Record<string, unknown>[];
+    return rows.map(mapRow);
+  }
+
   /** 获取指定报告的特征 */
   getByReportId(reportId: number): ScenarioFeature | undefined {
     const row = this.db.prepare(`SELECT * FROM scenario_features WHERE report_id = ?`).get(reportId) as Record<string, unknown> | undefined;

@@ -8,19 +8,7 @@ import { latestMA, latestRSI, rsiSignal, latestMACD, macdCross, latestBollinger,
 import type { TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis } from '../types/analysis.js';
 import type { MarketData, GoldPriceRecord } from '../types/market.js';
 import type { FundAnalysis } from '../types/fund.js';
-
-/**
- * 将日线收盘价序列 forward-fill，保持与 history 等长、等间隔（缺失日沿用上一有效收盘价）。
- */
-function forwardFillCloses(records: GoldPriceRecord[]): number[] {
-  const closes: number[] = [];
-  let last: number | null = null;
-  for (const r of records) {
-    if (r.londonClose != null) last = r.londonClose;
-    if (last != null) closes.push(last);
-  }
-  return closes;
-}
+import { forwardFillCloses } from '../utils/price-series.js';
 
 /**
  * 将日线数据聚合为周线 OHLC。

@@ -10,11 +10,28 @@ import { formatReportMarkdown } from '../utils/report-md.js';
 import { computeTailRiskIndex } from '../utils/tail-risk.js';
 import { getConfig } from '../utils/config.js';
 import { buildScoreBreakdown, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
+import { detectMacroRegime, formatMacroRegimeLine } from '../utils/macro-regime.js';
+import { buildJudgeVerdict, formatJudgeVerdictConsole } from '../utils/judge-verdict.js';
+import { findSimilarPatterns } from '../utils/scenario-similarity.js';
+import { buildRunManifest, saveRunManifest, wrapAnalysisOutputV1 } from '../utils/run-manifest.js';
+import { getDb } from '../db/index.js';
+import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
+import { ReportsRepo } from '../db/reports.js';
+import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
+import { GoldPricesRepo } from '../db/gold-prices.js';
 import { formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
+import type { PatternMatch } from '../types/calibration.js';
 
-export async function analysisCommand(options: { horizon: Horizon; json: boolean; save: boolean; md: boolean }): Promise<number> {
+export async function analysisCommand(options: {
+  horizon: Horizon;
+  json: boolean;
+  jsonLegacy: boolean;
+  save: boolean;
+  md: boolean;
+}): Promise<number> {
+  const startedAt = new Date().toISOString();
   console.log('\n🔬 GoldRush 综合分析启动...\n');
 
   // Step 1: 数据采集 + 验证
@@ -70,19 +87,76 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   };
   console.log('  ✅ 编排完成');
 
+  const judgeVerdict = buildJudgeVerdict(technical, fundamental, sentiment, rebuttal, scoreBreakdown);
+  console.log(formatJudgeVerdictConsole(judgeVerdict));
+
+  let goldDeviation: number | null = null;
+  try {
+    const closes = forwardFillCloses(new GoldPricesRepo(getDb()).getRecent(60));
+    goldDeviation = latestDeviationFromMA(closes, 20);
+  } catch { /* ignore */ }
+
+  const macroRegime = detectMacroRegime(marketData, goldDeviation);
+  console.log(`  🌐 宏观阶段: ${formatMacroRegimeLine(macroRegime)}`);
+
+  let similarPatterns: PatternMatch[] = [];
+  try {
+    const db = getDb();
+    const featRepo = new ScenarioFeaturesRepo(db);
+    const reportDate = report.timestamp.slice(0, 10);
+    const currentFeat = featRepo.getByDate(reportDate);
+    if (currentFeat) {
+      const history = featRepo.listForSimilarity(200);
+      const recentReports = new ReportsRepo(db).getRecent(365);
+      const scoreMap = new Map(recentReports.map(r => [r.id, { score: r.overallScore, direction: r.direction }]));
+      similarPatterns = findSimilarPatterns(currentFeat, history, scoreMap, {
+        excludeDate: reportDate,
+        topK: 5,
+        filledOnly: true,
+      });
+      if (similarPatterns.length > 0) {
+        console.log('  📜 历史相似日（已回填 5 日收益）:');
+        for (const p of similarPatterns.slice(0, 3)) {
+          const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : 'N/A';
+          console.log(`     ${p.date} 相似度 ${(p.similarity * 100).toFixed(0)}% → 5日后 ${ret}（当时 ${p.score} 分）`);
+        }
+      } else {
+        console.log('  📜 历史相似日: 样本不足（需更多已回填的 scenario_features）');
+      }
+    }
+  } catch { /* ignore */ }
+
+  const manifest = buildRunManifest({
+    horizon: options.horizon,
+    startedAt,
+    report,
+    scoreBreakdown,
+    macroRegime,
+    judgeVerdict,
+    similarPatterns,
+  });
+  const manifestPath = saveRunManifest(manifest);
+  console.log(`  📦 审计包已保存: ${manifestPath}`);
+
+  const reportExtras = { macroRegime, judgeVerdict, similarPatterns, scoreBreakdown };
+
   // 输出报告
   if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
+    if (options.jsonLegacy) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(JSON.stringify(wrapAnalysisOutputV1(manifest, report), null, 2));
+    }
   } else {
-    printReport(report, options.horizon, scoreBreakdown);
+    printReport(report, options.horizon, scoreBreakdown, reportExtras);
   }
 
-  // 保存到文件 (JSON)
+  // 保存到文件 (JSON schema v1)
   if (options.save) {
     const filename = `goldrush-analysis-${new Date().toISOString().slice(0, 10)}.json`;
     const fs = await import('node:fs');
-    fs.writeFileSync(filename, JSON.stringify(report, null, 2), 'utf-8');
-    console.log(`\n💾 报告已保存到 ${filename}`);
+    fs.writeFileSync(filename, JSON.stringify(wrapAnalysisOutputV1(manifest, report), null, 2), 'utf-8');
+    console.log(`\n💾 报告已保存到 ${filename}（schema v1）`);
   }
 
   // 保存为 Markdown 格式
@@ -91,7 +165,7 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
     const docsDir = 'docs';
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
     const filename = `${docsDir}/goldrush-analysis-${new Date().toISOString().slice(0, 10)}.md`;
-    const mdContent = formatReportMarkdown(report, options.horizon);
+    const mdContent = formatReportMarkdown(report, options.horizon, reportExtras);
     fs.writeFileSync(filename, mdContent, 'utf-8');
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
   }
@@ -104,13 +178,36 @@ export async function analysisCommand(options: { horizon: Horizon; json: boolean
   return 0;
 }
 
-function printReport(report: GoldAnalysisReport, horizon: Horizon, scoreBreakdown?: ReturnType<typeof buildScoreBreakdown>): void {
+function printReport(
+  report: GoldAnalysisReport,
+  horizon: Horizon,
+  scoreBreakdown?: ReturnType<typeof buildScoreBreakdown>,
+  extras?: {
+    macroRegime?: import('../utils/macro-regime.js').MacroRegime;
+    judgeVerdict?: import('../utils/judge-verdict.js').JudgeVerdict;
+    similarPatterns?: PatternMatch[];
+  },
+): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
 
   console.log(header('🎯 GoldRush 综合分析报告', formatNow()));
 
   const bd = scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
   console.log('\n' + formatScoreBreakdownConsole(bd, '  '));
+
+  if (extras?.macroRegime) {
+    console.log(`\n  🌐 宏观阶段: ${formatMacroRegimeLine(extras.macroRegime)}`);
+  }
+  if (extras?.judgeVerdict) {
+    console.log('\n' + formatJudgeVerdictConsole(extras.judgeVerdict, '  '));
+  }
+  if (extras?.similarPatterns && extras.similarPatterns.length > 0) {
+    console.log(`\n  📜 历史相似日（Top ${Math.min(3, extras.similarPatterns.length)}）`);
+    for (const p of extras.similarPatterns.slice(0, 3)) {
+      const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : '待回填';
+      console.log(`  · ${p.date} 相似 ${(p.similarity * 100).toFixed(0)}% | 5日后 ${ret} | 当时评分 ${p.score}`);
+    }
+  }
 
   // 综合研判
   const scoreDisplay = overall?.score ?? 'N/A';

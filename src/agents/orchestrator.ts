@@ -6,6 +6,8 @@ import { getDb } from '../db/index.js';
 import { CalibrationRepo } from '../db/calibration.js';
 import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
+import { GoldPricesRepo } from '../db/gold-prices.js';
+import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
 import type { TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, ShortTermStrategy, MidTermStrategy, Scenarios, RebuttalAnalysis, GoldAnalysisReport } from '../types/analysis.js';
 import type { MarketData } from '../types/market.js';
 import type { FundAnalysis } from '../types/fund.js';
@@ -266,8 +268,14 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         if (vixMatch) vixLevel = parseFloat(vixMatch[1]);
       }
 
-      // 金价偏离MA20
-      const devText = t?.shortTerm?.indicators?.ma20 ?? '';
+      // 金价偏离 MA20（本地计算）
+      let goldDeviation = 0;
+      try {
+        const pricesRepo = new GoldPricesRepo(db);
+        const closes = forwardFillCloses(pricesRepo.getRecent(60));
+        const dev = latestDeviationFromMA(closes, 20);
+        if (dev != null) goldDeviation = dev;
+      } catch { /* ignore */ }
 
       // fedStance 从基本面提取
       const fedRaw = f?.fedStance ?? '';

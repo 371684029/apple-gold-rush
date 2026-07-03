@@ -9,6 +9,18 @@ import type { Horizon } from '../types/config.js';
 import { buildScoreBreakdown, formatScoreBreakdownMarkdown } from './score-breakdown.js';
 import { computeTailRiskIndex } from './tail-risk.js';
 import { getConfig } from './config.js';
+import type { MacroRegime } from './macro-regime.js';
+import type { JudgeVerdict } from './judge-verdict.js';
+import { formatJudgeVerdictMarkdown } from './judge-verdict.js';
+import type { PatternMatch } from '../types/calibration.js';
+import type { ScoreBreakdown } from './score-breakdown.js';
+
+export interface ReportMarkdownExtras {
+  macroRegime?: MacroRegime;
+  judgeVerdict?: JudgeVerdict;
+  similarPatterns?: PatternMatch[];
+  scoreBreakdown?: ScoreBreakdown;
+}
 
 function dirText(d: string | undefined): string {
   switch (d) {
@@ -32,7 +44,11 @@ function horizonText(h: Horizon): string {
 }
 
 /** 将完整分析报告渲染为 Markdown 日报 */
-export function formatReportMarkdown(report: GoldAnalysisReport, horizon: Horizon = 'all'): string {
+export function formatReportMarkdown(
+  report: GoldAnalysisReport,
+  horizon: Horizon = 'all',
+  extras?: ReportMarkdownExtras,
+): string {
   const { overall, technical, fundamental, sentiment, fund, rebuttal } = report;
   const tailRisks = report.tailRisks ?? rebuttal?.tailRisks ?? [];
   const lines: string[] = [];
@@ -41,6 +57,18 @@ export function formatReportMarkdown(report: GoldAnalysisReport, horizon: Horizo
   lines.push('');
   lines.push(`> 生成时间：${na(report.timestamp)}　|　视角：${horizonText(horizon)}　|　数据置信度：${na(report.dataQuality?.overallConfidence)}%`);
   lines.push('');
+
+  const macro = extras?.macroRegime;
+  if (macro) {
+    lines.push('## 🌐 宏观阶段');
+    lines.push('');
+    lines.push(`- **${macro.label}**（\`${macro.tag}\`）`);
+    lines.push(`- ${macro.description}`);
+    if (macro.signals.length) {
+      lines.push(`- 依据：${macro.signals.join('；')}`);
+    }
+    lines.push('');
+  }
 
   // 综合研判
   lines.push('## 综合研判');
@@ -53,11 +81,29 @@ export function formatReportMarkdown(report: GoldAnalysisReport, horizon: Horizo
   lines.push('');
 
   if (technical && fundamental && sentiment && rebuttal) {
-    const bd = buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
+    const bd = extras?.scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
     lines.push(...formatScoreBreakdownMarkdown(bd));
   }
 
-  // 情景分析（原 cal 块已上移）
+  const judge = extras?.judgeVerdict;
+  if (judge) {
+    lines.push(...formatJudgeVerdictMarkdown(judge));
+  }
+
+  const patterns = extras?.similarPatterns;
+  if (patterns && patterns.length > 0) {
+    lines.push('## 📜 历史相似日');
+    lines.push('');
+    lines.push('| 日期 | 相似度 | 当时评分 | 5日后涨跌 |');
+    lines.push('|------|--------|----------|-----------|');
+    for (const p of patterns) {
+      const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : '待回填';
+      lines.push(`| ${p.date} | ${(p.similarity * 100).toFixed(0)}% | ${p.score} | ${ret} |`);
+    }
+    lines.push('');
+  }
+
+  // 情景分析
   const sc = overall?.scenarios;
   if (sc) {
     lines.push('## ⚡ 情景分析');
