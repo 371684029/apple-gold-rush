@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkFreshness, gradeSource, crossValidate } from '../src/utils/source-rank';
+import { checkFreshness, gradeSource, crossValidate, validationSourcesFromPrices } from '../src/utils/source-rank';
 
 describe('checkFreshness — 非法时间戳防御', () => {
   it('非法时间戳应判定为不新鲜并给出警告', () => {
@@ -42,5 +42,14 @@ describe('crossValidate — 单源不应标为 verified', () => {
     }]);
     expect(r.consensus).toBe('single_source');
     expect(r.confidence).toBeLessThan(70);
+  });
+
+  it('validationSourcesFromPrices 合并主源与备用源', () => {
+    const sources = validationSourcesFromPrices(
+      { value: 2000, change: 0, source: 'A', sourceGrade: 'A', verifiedAt: 't1' },
+      [{ value: 2005, change: 0, source: 'B', sourceGrade: 'B', verifiedAt: 't2' }],
+    );
+    expect(sources).toHaveLength(2);
+    expect(crossValidate('london.price', sources).consensus).toBe('verified');
   });
 });

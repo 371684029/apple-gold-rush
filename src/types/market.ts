@@ -19,6 +19,7 @@ export interface SourcedPrice extends SourcedValue<number> {
 /** 伦敦金数据 */
 export interface LondonGold {
   price: SourcedPrice;   // USD/oz
+  altPrices?: SourcedPrice[]; // 其他来源报价（交叉验证）
   high?: SourcedValue<number>;
   low?: SourcedValue<number>;
 }
@@ -26,6 +27,7 @@ export interface LondonGold {
 /** 上海金数据 */
 export interface ShanghaiGold {
   price: SourcedPrice;   // CNY/g
+  altPrices?: SourcedPrice[];
   high?: SourcedValue<number>;
   low?: SourcedValue<number>;
 }

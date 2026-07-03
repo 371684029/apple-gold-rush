@@ -134,5 +134,19 @@ GoldRush 是面向支付宝黄金定投者的 CLI 研究 Agent：一条命令完
 - `test/rebuttal-score.test.ts`、`test/tail-risk.test.ts`、`test/config.test.ts`；`source-rank` 补单源用例。总用例 **23 → 35**。
 
 ### 仍未处理（P2 / 架构级）
-- Zod 校验替代手写 JSON 修复；Exa 双引擎；`init-history` 真正回填 60 天；`search_cache` / `fund_nav` 写入；评分乘数在线校准等（见第五节）。
+- Zod 校验替代手写 JSON 修复；评分乘数在线校准；推理门控；RAG 向量库等（见第五节）。
+
+---
+
+## 八、第四轮（P1 数据层 + 正确性，移除 Exa 双引擎）
+
+| 项 | 落地 |
+|----|------|
+| `search_cache` 接入 | `SearchRouter` 读写在 `SearchCacheRepo`，TTL 用 `search.cacheMinutes` |
+| `fund_nav` 写入 | 采集/ fund 命令写入 `FundNavRepo`；`FundAgent` 输出 `funds` 对比表 |
+| `init-history` 回填 | `backfillHistory(days)` + `--days`；缺失日 LLM 提取 london_close |
+| 多源交叉验证 | 采集增加备用搜索 + `altPrices`；`validationSourcesFromPrices` |
+| 周线指标 | `weekly-series.ts` forward-fill 后 ISO 周聚合 |
+| 依赖清理 | 移除未使用的 `exa-js`；README/AGENTS 改为 Tavily 单引擎表述 |
+| 测试 | `history-backfill` / `weekly-series` / 多源验证；**61** 用例 |
 

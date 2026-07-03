@@ -2,7 +2,7 @@
 
 import { BaseAgent } from './base.js';
 import { getConfig } from '../utils/config.js';
-import { crossValidate, checkFreshness } from '../utils/source-rank.js';
+import { crossValidate, checkFreshness, validationSourcesFromPrices } from '../utils/source-rank.js';
 import type { MarketData, ValidationResult } from '../types/market.js';
 
 const VALIDATION_SYSTEM_PROMPT = `你是黄金市场数据验证专家。你的任务是验证采集到的市场数据的准确性和时效性。
@@ -72,20 +72,16 @@ export class ValidatorAgent extends BaseAgent {
     const validations: ValidationResult[] = [];
 
     if (data.london?.price?.value != null) {
-      validations.push(crossValidate('london.price', [{
-        value: data.london.price.value,
-        source: data.london.price.source ?? 'unknown',
-        grade: data.london.price.sourceGrade ?? 'C',
-        timestamp: data.london.price.verifiedAt ?? '',
-      }]));
+      validations.push(crossValidate(
+        'london.price',
+        validationSourcesFromPrices(data.london.price, data.london.altPrices),
+      ));
     }
     if (data.shanghai?.price?.value != null) {
-      validations.push(crossValidate('shanghai.price', [{
-        value: data.shanghai.price.value,
-        source: data.shanghai.price.source ?? 'unknown',
-        grade: data.shanghai.price.sourceGrade ?? 'C',
-        timestamp: data.shanghai.price.verifiedAt ?? '',
-      }]));
+      validations.push(crossValidate(
+        'shanghai.price',
+        validationSourcesFromPrices(data.shanghai.price, data.shanghai.altPrices),
+      ));
     }
     if (data.etf?.nav?.value != null) {
       validations.push(crossValidate('etf.nav', [{

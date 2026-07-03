@@ -1,6 +1,6 @@
 // 来源分级 + 交叉验证工具
 
-import type { SourceGrade, ValidationResult, ValidationSource, ValidationConsensus } from '../types/market.js';
+import type { SourceGrade, ValidationResult, ValidationSource, ValidationConsensus, SourcedPrice } from '../types/market.js';
 
 /** 已知来源分级映射 */
 const SOURCE_GRADES: Record<string, SourceGrade> = {
@@ -158,4 +158,26 @@ export function checkFreshness(dataTime: string, thresholdHours: number = 4): { 
   }
 
   return { fresh: true, ageHours: Math.round(ageHours * 10) / 10 };
+}
+
+/** 主报价 + 备用来源 → 交叉验证输入 */
+export function validationSourcesFromPrices(
+  primary: SourcedPrice | undefined,
+  alts?: SourcedPrice[],
+): ValidationSource[] {
+  const sources: ValidationSource[] = [];
+  const push = (p: SourcedPrice | undefined) => {
+    if (p?.value == null || !Number.isFinite(p.value)) return;
+    sources.push({
+      value: p.value,
+      source: p.source ?? 'unknown',
+      grade: (p.sourceGrade ?? gradeSource(p.source ?? '')) as SourceGrade,
+      timestamp: p.verifiedAt ?? '',
+    });
+  };
+  push(primary);
+  for (const alt of alts ?? []) {
+    push(alt);
+  }
+  return sources;
 }

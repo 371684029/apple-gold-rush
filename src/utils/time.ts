@@ -114,3 +114,10 @@ export function todayDate(now: Date = new Date()): string {
   const dd = String(day).padStart(2, '0');
   return `${year}-${mm}-${dd}`;
 }
+
+/** 日历日加减（按 Asia/Shanghai 日历，dateStr 为 YYYY-MM-DD） */
+export function addCalendarDays(dateStr: string, delta: number): string {
+  const base = new Date(`${dateStr}T12:00:00+08:00`);
+  base.setDate(base.getDate() + delta);
+  return todayDate(base);
+}

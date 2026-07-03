@@ -129,14 +129,15 @@ Orchestrator (编排层)
 
 ## 核心设计
 
-### 双引擎搜索
+### 搜索层（Tavily 单引擎）
 
-| 数据类型 | 搜索引擎 | 原因 |
-|---------|---------|------|
-| 国际金价 XAU/USD | Tavily | 金融分类搜索 |
-| COMEX/美联储/美债 | Tavily | 英文金融数据覆盖好 |
-| 上海金/ETF/基金 | Tavily + opencode fallback | 中文数据源覆盖好 |
-| 央行购金/地缘风险 | Tavily | 中英文兼顾 |
+| 数据类型 | 方式 | 说明 |
+|---------|------|------|
+| 国际金价 / COMEX / 美债 | Tavily `finance` topic | 联网金融搜索 |
+| 上海金 / ETF / 基金净值 | Tavily | 同上 |
+| 搜索结果缓存 | SQLite `search_cache` | 默认 5 分钟 TTL，降低重复调用 |
+
+未配置 `TAVILY_API_KEY` 时搜索降级为空结果；`history` / `calibrate` 等纯本地命令不受影响。
 
 ### 信息可靠性五道防线
 
@@ -265,7 +266,7 @@ goldRush/
 │   │   └── history.ts        # 历史数据
 │   ├── agents/
 │   │   ├── base.ts           # Agent 基类 (opencode CLI)
-│   │   ├── data-collector.ts # 数据采集 + 双引擎搜索
+│   │   ├── data-collector.ts # 数据采集 + Tavily 搜索
 │   │   ├── validator.ts      # 信息验证 + 来源分级
 │   │   ├── analysis-agents.ts# 四维度 Agent (技术/基本/情绪/基金)
 │   │   ├── rebuttal.ts       # 强制反驳 Agent

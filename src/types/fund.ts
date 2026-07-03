@@ -1,7 +1,16 @@
 // 基金面类型定义
 
+/** 支付宝黄金定投跟踪基金代码 */
+export const TRACKED_FUNDS = [
+  { code: '518880', name: '华安黄金ETF', type: 'ETF' as const },
+  { code: '000216', name: '华安黄金ETF联接A', type: 'A' as const },
+  { code: '000217', name: '华安黄金ETF联接C', type: 'C' as const },
+  { code: '002610', name: '博时黄金ETF联接A', type: 'A' as const },
+  { code: '002611', name: '博时黄金ETF联接C', type: 'C' as const },
+] as const;
+
 /** 基金类型 */
-export type FundClass = 'A' | 'C';
+export type FundClass = 'A' | 'C' | 'ETF';
 
 /** 估值水位 */
 export type ValuationLevel = 'low' | 'fair' | 'high';

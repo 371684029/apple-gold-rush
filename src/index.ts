@@ -119,10 +119,11 @@ program
 
 program
   .command('init-history')
-  .description('首次运行：拉取最近60天历史数据')
-  .action(async () => {
+  .description('首次运行：回填缺失历史金价并采集当日')
+  .option('--days <n>', '回溯日历天数', '60')
+  .action(async (opts) => {
     try {
-      await initHistoryCommand();
+      await initHistoryCommand(parseInt(opts.days, 10) || 60);
     } finally {
       closeDb();
     }
