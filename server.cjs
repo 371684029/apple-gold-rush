@@ -1153,6 +1153,7 @@ function renderArticle(mdFilename, rawMarkdown) {
     const md = \`${mdContent(displayMd)}\`;
     const tocIds = ${JSON.stringify(tocItems.map(t => t.id))};
     const tocTitles = ${JSON.stringify(tocItems.map(t => t.title))};
+    const MARKDOWN_PURIFY_OPTS = ${JSON.stringify(MARKDOWN_PURIFY_OPTS)};
 
     let html = DOMPurify.sanitize(marked.parse(md), MARKDOWN_PURIFY_OPTS);
     // 为 h2 注入锚点 id，便于目录跳转
