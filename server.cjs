@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const PORT = parseInt(process.env.PORT || '80', 10);
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 const DOCS_DIR = path.resolve(__dirname, 'docs');
 const DOCS_ROOT = DOCS_DIR + path.sep;
 
