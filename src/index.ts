@@ -53,6 +53,7 @@ program
   .option('--json-legacy', 'JSON 仅输出报告本体，不含 manifest')
   .option('--save', '保存报告到文件 (JSON schema v1)')
   .option('--md', '保存报告为 Markdown 格式')
+  .option('--smart', '推理门控：低波动日跳过 LLM，复用上一日研判')
   .action(async (opts) => {
     const horizon = opts.horizon as 'short' | 'mid' | 'all';
     if (!['short', 'mid', 'all'].includes(horizon)) {
@@ -66,6 +67,7 @@ program
         jsonLegacy: opts.jsonLegacy ?? false,
         save: opts.save ?? false,
         md: opts.md ?? false,
+        smart: opts.smart ?? false,
       });
       if (exitCode !== 0) process.exit(exitCode);
     } finally {

@@ -11,6 +11,11 @@ import type {
   TechnicalAnalysis,
 } from '../types/analysis.js';
 import type { MacroRegime } from './macro-regime.js';
+import type { GoldPriceRecord } from '../types/market.js';
+import {
+  filterBandsByDirectionHint,
+  enrichReturnBandWithHistory,
+} from './long-term-backtest.js';
 
 export interface LongTermOutlookInput {
   technical: TechnicalAnalysis;
@@ -20,6 +25,8 @@ export interface LongTermOutlookInput {
   overallScore: number;
   overallDirection: Direction;
   macroRegime: MacroRegime;
+  /** 可选：本地金价历史，用于回报带历史分位数 */
+  priceHistory?: GoldPriceRecord[];
 }
 
 const HORIZONS: LongTermHorizonYears[] = [1, 3, 5];
@@ -157,6 +164,11 @@ function buildHorizon(input: LongTermOutlookInput, years: LongTermHorizonYears):
   bias = Math.max(5, Math.min(95, Math.round(bias)));
 
   const direction = scoreToDirection(bias);
+  let returnBandStr = returnBand(direction, bias, years);
+  if (input.priceHistory?.length) {
+    const hist = filterBandsByDirectionHint(input.priceHistory, direction, years);
+    returnBandStr = enrichReturnBandWithHistory(returnBandStr, hist);
+  }
   return {
     years,
     label: `${years}年`,
@@ -164,7 +176,7 @@ function buildHorizon(input: LongTermOutlookInput, years: LongTermHorizonYears):
     biasScore: bias,
     confidence: confidence(bias, input.rebuttal),
     trendLabel: trendLabel(direction, bias),
-    returnBand: returnBand(direction, bias, years),
+    returnBand: returnBandStr,
     drivers: pickDrivers(input, years),
     risks: pickRisks(input),
     dcaAdvice: dcaAdvice(direction, years),

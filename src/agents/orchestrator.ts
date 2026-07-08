@@ -11,6 +11,9 @@ import { resolveOverallScore, enforceOverallScore } from '../utils/overall-score
 import { applyCalibrationScore, directionFromScore } from '../utils/calibration-adjust.js';
 import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js';
 import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
+import { applyScenarioProbabilities, formatScenarioProbLine, type ScenarioProbabilities } from '../utils/scenario-probability.js';
+import type { MacroRegime } from '../utils/macro-regime.js';
+import type { CausalChainMatch } from '../utils/gold-causal-rules.js';
 import type { TechnicalAnalysis, FundamentalAnalysis, SentimentAnalysis, Direction, ShortTermStrategy, MidTermStrategy, Scenarios, RebuttalAnalysis, GoldAnalysisReport } from '../types/analysis.js';
 import type { MarketData } from '../types/market.js';
 import type { FundAnalysis } from '../types/fund.js';
@@ -80,6 +83,13 @@ const ORCHESTRATOR_PROMPT = `你是黄金投资研究综合编排师。你将汇
   }
 }`;
 
+export interface OrchestrateOptions {
+  macroRegime: MacroRegime;
+  recentReportsContext: string;
+  scenarioProbs?: ScenarioProbabilities;
+  causalChains?: CausalChainMatch[];
+}
+
 export class OrchestratorAgent extends BaseAgent {
   constructor() {
     const config = getConfig();
@@ -95,6 +105,7 @@ export class OrchestratorAgent extends BaseAgent {
     fund: FundAnalysis,
     rebuttal: RebuttalAnalysis,
     horizon: 'short' | 'mid' | 'all' = 'all',
+    opts: OrchestrateOptions,
   ): Promise<GoldAnalysisReport> {
     // 获取校准上下文
     const db = getDb();
@@ -104,7 +115,7 @@ export class OrchestratorAgent extends BaseAgent {
       fundamental: fundamental.score,
       sentiment: sentiment.score,
     });
-    const calibrationContext = calibrationRepo.getCalibrationContext(initialScore);
+    const calibrationContext = calibrationRepo.getCalibrationContext(initialScore, opts.macroRegime.tag);
 
     // 自动回填
     try {
@@ -120,6 +131,15 @@ export class OrchestratorAgent extends BaseAgent {
         : null;
       const t20Part = pct20 != null ? `，20日涨概率${pct20}%` : '';
       calibrationText = `评分${calibrationContext.scoreRange}区间：历史${calibrationContext.sampleSize}次分析，5日涨概率${pct5}%${t20Part}，系统偏差：${calibrationContext.systematicBias}`;
+      if (
+        calibrationContext.regimeTag
+        && calibrationContext.regimeSampleSize != null
+        && calibrationContext.regimeSampleSize >= 3
+        && calibrationContext.regimeHistoricalAccuracy != null
+      ) {
+        const rp = Math.round(calibrationContext.regimeHistoricalAccuracy * 100);
+        calibrationText += `；同宏观阶段「${opts.macroRegime.label}」${calibrationContext.regimeSampleSize}次，5日涨概率${rp}%（${calibrationContext.regimeSystematicBias}）`;
+      }
     }
 
     const calAdjust = applyCalibrationScore(initialScore, calibrationContext);
@@ -177,6 +197,14 @@ export class OrchestratorAgent extends BaseAgent {
     const etfNavVal = marketData.etf?.nav?.value;
     const dxyVal = marketData.dollarIndex?.value?.value;
 
+    const scenarioHint = opts.scenarioProbs
+      ? formatScenarioProbLine(opts.scenarioProbs)
+      : '';
+
+    const causalHint = opts.causalChains?.length
+      ? opts.causalChains.map(c => `${c.cause}→${c.effect}`).join('；')
+      : '';
+
     const prompt = `## 市场数据
 伦敦金: $${safe(londonVal)} (${londonChg != null ? (londonChg > 0 ? '+' : '') + londonChg + '%' : 'N/A'})
 上海金: ¥${safe(shanghaiVal)}/g
@@ -206,6 +234,14 @@ ${sentiment.keyPoints.join('; ')}
 ## 历史校准
 ${calibrationText}
 
+## 宏观阶段
+${opts.macroRegime.label}（${opts.macroRegime.tag}）：${opts.macroRegime.description}
+
+${opts.recentReportsContext}
+
+${scenarioHint ? `## 情景概率参考（统计）\n${scenarioHint}\n情景描述由你撰写，概率请尽量贴近上述统计参考。\n` : ''}
+${causalHint ? `## 因果链参考（本地规则）\n${causalHint}\n` : ''}
+
 ## 输出视角
 ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视角' : '双视角（短期+中长期）'}
 
@@ -224,10 +260,20 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       };
     }>(prompt, schema);
 
+    let scenarios = result.overall.scenarios;
+    let scenarioProbSource: GoldAnalysisReport['scenarioProbSource'] = 'llm';
+    if (opts.scenarioProbs) {
+      scenarios = applyScenarioProbabilities(scenarios, opts.scenarioProbs);
+      scenarioProbSource = opts.scenarioProbs.source;
+    }
+
     // 构建完整报告
     const report: GoldAnalysisReport = {
       timestamp: new Date().toISOString(),
       marketData,
+      macroRegime: opts.macroRegime,
+      causalChains: opts.causalChains,
+      scenarioProbSource,
       dataQuality: {
         overallConfidence: 80,
         warnings: [],
@@ -240,6 +286,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       tailRisks: rebuttal.tailRisks ?? [],
       overall: {
         ...result.overall,
+        scenarios,
         score: enforceOverallScore(result.overall.score, displayScore),
         direction: displayDirection,
         calibration: {

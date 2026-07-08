@@ -3,8 +3,9 @@ import Database from 'better-sqlite3';
 import { ReportsRepo, type AnalysisReportRow } from './reports.js';
 import { GoldPricesRepo } from './gold-prices.js';
 import { ScenarioFeaturesRepo } from './scenario-features.js';
-import type { CalibrationBucket, CalibrationReport, RiskAlertQuality } from '../types/calibration.js';
+import type { GoldAnalysisReport } from '../types/analysis.js';
 import type { Direction } from '../types/analysis.js';
+import type { CalibrationBucket, CalibrationReport, RiskAlertQuality } from '../types/calibration.js';
 import { SCORE_BUCKETS, scoreBucketRange } from '../utils/score-buckets.js';
 
 export class CalibrationRepo {
@@ -182,8 +183,8 @@ export class CalibrationRepo {
     };
   }
 
-  /** 获取校准上下文（注入综合编排 prompt + 数值修正） */
-  getCalibrationContext(score: number): import('../types/analysis.js').CalibrationContext | null {
+  /** 获取校准上下文（全局 + 可选 regime 分桶） */
+  getCalibrationContext(score: number, regimeTag?: string): import('../types/analysis.js').CalibrationContext | null {
     const matchedRange = scoreBucketRange(score);
     if (!matchedRange) return null;
 
@@ -195,6 +196,10 @@ export class CalibrationRepo {
         historicalAccuracy20d: null,
         systematicBias: '样本不足',
         sampleSize: reports.length,
+        regimeTag,
+        regimeHistoricalAccuracy: null,
+        regimeSampleSize: 0,
+        regimeSystematicBias: '样本不足',
       };
     }
 
@@ -206,13 +211,40 @@ export class CalibrationRepo {
       ? (midScore > acc5.accuracy * 100 ? '偏乐观' : midScore < acc5.accuracy * 100 ? '偏保守' : '校准良好')
       : '未知';
 
+    let regimeAcc: { accuracy: number | null; valid: number } = { accuracy: null, valid: 0 };
+    let regimeBias = '样本不足';
+    if (regimeTag) {
+      const regimeReports = reports.filter(r => this.extractRegimeTag(r.reportJson) === regimeTag);
+      regimeAcc = this.computeUpProbability(regimeReports, 5);
+      if (regimeAcc.valid >= 3 && regimeAcc.accuracy != null) {
+        regimeBias = midScore > regimeAcc.accuracy * 100
+          ? '偏乐观'
+          : midScore < regimeAcc.accuracy * 100
+            ? '偏保守'
+            : '校准良好';
+      }
+    }
+
     return {
       scoreRange: matchedRange.range,
       historicalAccuracy: acc5.accuracy,
       historicalAccuracy20d: acc20.accuracy,
       systematicBias: bias,
       sampleSize: acc5.valid,
+      regimeTag,
+      regimeHistoricalAccuracy: regimeAcc.accuracy,
+      regimeSampleSize: regimeAcc.valid,
+      regimeSystematicBias: regimeBias,
     };
+  }
+
+  private extractRegimeTag(reportJson: string): string | null {
+    try {
+      const r = JSON.parse(reportJson) as GoldAnalysisReport;
+      return r.macroRegime?.tag ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** 计算区间内报告在 T 日后的上涨概率 */

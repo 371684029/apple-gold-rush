@@ -124,10 +124,16 @@ export interface Scenarios {
 /** 校准上下文 */
 export interface CalibrationContext {
   scoreRange: string;
-  /** T=5 交易日后续上涨概率 */
+  /** 5日涨概率（全局分桶） */
   historicalAccuracy: number | null;
   /** T=20 交易日后续上涨概率（定投视角） */
   historicalAccuracy20d: number | null;
+  /** 当前宏观阶段标签 */
+  regimeTag?: string;
+  /** 同 regime 下 5 日涨概率 */
+  regimeHistoricalAccuracy?: number | null;
+  regimeSampleSize?: number;
+  regimeSystematicBias?: string;
   systematicBias: string;
   sampleSize: number;
   /** 反驳修正后、校准偏移前的分数 */
@@ -189,6 +195,12 @@ export interface GoldAnalysisReport {
   };
   /** 1/3/5 年等多期限方向预期（本地规则推导，非价格预测） */
   longTermOutlook?: LongTermOutlook;
+  /** 当日宏观阶段（写入 JSON 供 regime 校准） */
+  macroRegime?: import('../utils/macro-regime.js').MacroRegime;
+  /** 本地因果规则匹配结果 */
+  causalChains?: import('../utils/gold-causal-rules.js').CausalChainMatch[];
+  /** 情景概率来源 */
+  scenarioProbSource?: 'llm' | 'historical' | 'insufficient';
 }
 
 /** 长期展望 — 单期限 */

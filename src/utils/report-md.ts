@@ -13,6 +13,7 @@ import type { MacroRegime } from './macro-regime.js';
 import type { JudgeVerdict } from './judge-verdict.js';
 import { formatJudgeVerdictMarkdown } from './judge-verdict.js';
 import { formatLongTermOutlookMarkdown } from './long-term-outlook.js';
+import { formatCausalChainsMarkdown } from './gold-causal-rules.js';
 import type { LongTermOutlook } from '../types/analysis.js';
 import type { PatternMatch } from '../types/calibration.js';
 import type { ScoreBreakdown } from './score-breakdown.js';
@@ -90,6 +91,15 @@ export function formatReportMarkdown(
     lines.push(`- 校准参考：样本不足（${na(cal.sampleSize)} 条），分数未经统计修正`);
   }
   lines.push('');
+
+  if (report.causalChains?.length) {
+    lines.push(...formatCausalChainsMarkdown(report.causalChains));
+  }
+
+  if (report.scenarioProbSource === 'historical') {
+    lines.push(`> 情景概率已按历史相似日 5 日收益统计修正（叙述仍为 LLM 生成）。`);
+    lines.push('');
+  }
 
   if (technical && fundamental && sentiment && rebuttal) {
     const bd = extras?.scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);

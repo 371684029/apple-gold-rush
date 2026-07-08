@@ -7,7 +7,7 @@ import {
 
 describe('computeCalibrationOffset', () => {
   it('样本不足时不偏移', () => {
-    expect(computeCalibrationOffset(65, 0.58, 4)).toBe(0);
+    expect(computeCalibrationOffset(65, 0.58, 2)).toBe(0);
   });
 
   it('偏乐观区间下调分数', () => {
@@ -30,6 +30,20 @@ describe('applyCalibrationScore', () => {
     const r = applyCalibrationScore(47, { historicalAccuracy: null, sampleSize: 2, systematicBias: '样本不足' });
     expect(r.calibratedScore).toBe(47);
     expect(r.applied).toBe(false);
+    expect(r.reason).toBe('校准样本不足');
+  });
+
+  it('regime 样本优先用于偏移', () => {
+    const r = applyCalibrationScore(65, {
+      historicalAccuracy: 0.7,
+      sampleSize: 20,
+      systematicBias: '校准良好',
+      regimeHistoricalAccuracy: 0.4,
+      regimeSampleSize: 5,
+      regimeSystematicBias: '偏乐观',
+    });
+    expect(r.offset).toBeLessThan(0);
+    expect(r.applied).toBe(true);
   });
 
   it('应用偏移并钳制 0-100', () => {

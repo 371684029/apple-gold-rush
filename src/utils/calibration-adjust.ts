@@ -17,7 +17,7 @@ export function computeCalibrationOffset(
   historicalAccuracy: number | null,
   sampleSize: number,
 ): number {
-  if (historicalAccuracy == null || sampleSize < 5) return 0;
+  if (historicalAccuracy == null || sampleSize < 3) return 0;
 
   const bucket = scoreBucketRange(rawScore);
   if (!bucket) return 0;
@@ -26,7 +26,8 @@ export function computeCalibrationOffset(
   const actualProbPct = historicalAccuracy * 100;
   let offset = actualProbPct - midScore;
 
-  const scale = sampleSize >= 10 ? 1 : 0.5;
+  const scale = sampleSize >= 10 ? 1 : sampleSize >= 5 ? 0.5 : sampleSize >= 3 ? 0.35 : 0;
+  if (scale === 0) return 0;
   offset = Math.round(offset * scale);
 
   return Math.max(-8, Math.min(3, offset));
@@ -34,21 +35,45 @@ export function computeCalibrationOffset(
 
 export function applyCalibrationScore(
   rawScore: number,
-  ctx: Pick<CalibrationContext, 'historicalAccuracy' | 'sampleSize' | 'systematicBias'> | null,
+  ctx: Pick<
+    CalibrationContext,
+    | 'historicalAccuracy'
+    | 'sampleSize'
+    | 'systematicBias'
+    | 'regimeHistoricalAccuracy'
+    | 'regimeSampleSize'
+    | 'regimeSystematicBias'
+  > | null,
+  preferRegime = true,
 ): CalibrationAdjustResult {
   const clampedRaw = Math.max(0, Math.min(100, Math.round(rawScore)));
 
-  if (!ctx || ctx.historicalAccuracy == null || ctx.sampleSize < 5) {
+  let accuracy = ctx?.historicalAccuracy ?? null;
+  let sampleSize = ctx?.sampleSize ?? 0;
+  let biasLabel = ctx?.systematicBias ?? '样本不足';
+
+  if (
+    preferRegime
+    && ctx?.regimeSampleSize != null
+    && ctx.regimeSampleSize >= 3
+    && ctx.regimeHistoricalAccuracy != null
+  ) {
+    accuracy = ctx.regimeHistoricalAccuracy;
+    sampleSize = ctx.regimeSampleSize;
+    biasLabel = ctx.regimeSystematicBias ?? biasLabel;
+  }
+
+  if (accuracy == null || sampleSize < 3) {
     return {
       rawScore: clampedRaw,
       calibratedScore: clampedRaw,
       offset: 0,
       applied: false,
-      reason: ctx?.systematicBias === '样本不足' ? '校准样本不足' : '暂无校准数据',
+      reason: sampleSize < 5 ? '校准样本不足' : '暂无校准数据',
     };
   }
 
-  const offset = computeCalibrationOffset(clampedRaw, ctx.historicalAccuracy, ctx.sampleSize);
+  const offset = computeCalibrationOffset(clampedRaw, accuracy, sampleSize);
   const calibratedScore = Math.max(0, Math.min(100, clampedRaw + offset));
 
   return {

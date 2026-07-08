@@ -22,7 +22,17 @@ import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { ensureGoldPriceHistory, MIN_TRADING_ROWS_FOR_ANALYSIS } from '../utils/ensure-gold-history.js';
 import { priceSeriesProxyNote, spotProxyDeviationWarning } from '../utils/price-semantics.js';
-import { formatNow } from '../utils/time.js';
+import { evaluateAnalysisGate } from '../utils/analysis-gate.js';
+import { buildSmartReport, parseReportJson } from '../utils/smart-analysis.js';
+import { buildRecentReportsContext } from '../utils/report-history-context.js';
+import { resolveOverallScore } from '../utils/overall-score.js';
+import { directionFromScore } from '../utils/calibration-adjust.js';
+import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js';
+import { buildScenarioFeatureDraft, draftToScenarioFeature } from '../utils/scenario-feature-builder.js';
+import { computeScenarioProbabilities } from '../utils/scenario-probability.js';
+import { matchCausalChains, formatCausalChainsConsole } from '../utils/gold-causal-rules.js';
+import type { OrchestrateOptions } from '../agents/orchestrator.js';
+import { todayDate, formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
 import type { GoldAnalysisReport } from '../types/analysis.js';
 import type { PatternMatch } from '../types/calibration.js';
@@ -33,6 +43,7 @@ export async function analysisCommand(options: {
   jsonLegacy: boolean;
   save: boolean;
   md: boolean;
+  smart: boolean;
 }): Promise<number> {
   const startedAt = new Date().toISOString();
   console.log('\n🔬 GoldRush 综合分析启动...\n');
@@ -53,6 +64,18 @@ export async function analysisCommand(options: {
   } catch (err) {
     console.warn('  ⚠️ 历史自动补齐失败:', err instanceof Error ? err.message : err);
     console.warn('  💡 请运行 goldrush init-history --days 60 或检查 Yahoo Finance 网络');
+  }
+
+  if (options.smart) {
+    const gate = evaluateAnalysisGate(priceRepo.getRecent(5));
+    if (gate.mode === 'calm') {
+      console.log(`  🧠 Smart 门控：${gate.reason}`);
+      const smartExit = await runSmartAnalysis(options, gate, priceRepo, startedAt);
+      if (smartExit != null) return smartExit;
+      console.log('  ⚡ Smart：无可用上一日报告，转完整分析');
+    } else {
+      console.log(`  ⚡ Smart：${gate.reason}，运行完整分析`);
+    }
   }
 
   // Step 1: 数据采集 + 验证
@@ -104,10 +127,82 @@ export async function analysisCommand(options: {
   console.log(`  📈 ${formatScoreBreakdownOneLine(scoreBreakdown)}`);
   console.log(formatScoreBreakdownConsole(scoreBreakdown));
 
+  let goldDeviation: number | null = null;
+  try {
+    const closes = forwardFillCloses(priceRepo.getRecent(60));
+    goldDeviation = latestDeviationFromMA(closes, 20);
+  } catch { /* ignore */ }
+
+  const macroRegime = detectMacroRegime(marketData, goldDeviation);
+  const causalChains = matchCausalChains(marketData, macroRegime, goldDeviation);
+  console.log(formatCausalChainsConsole(causalChains));
+
+  const db = getDb();
+  const reportsRepo = new ReportsRepo(db);
+  const today = todayDate();
+  const recentReportsContext = buildRecentReportsContext(reportsRepo.getRecent(30), today);
+
+  const prelimScore = resolveOverallScore(rebuttal, {
+    technical: technical.score,
+    fundamental: fundamental.score,
+    sentiment: sentiment.score,
+  });
+  const prelimDirection = directionFromScore(prelimScore);
+
+  let scenarioProbs = computeScenarioProbabilities([]);
+  let preSimilar: PatternMatch[] = [];
+  try {
+    const featRepo = new ScenarioFeaturesRepo(db);
+    const consecutiveDays = countConsecutiveDirectionDays(
+      reportsRepo.getRecent(30).map(r => ({ date: r.date, direction: r.direction })),
+      prelimDirection,
+      today,
+    );
+    const draft = buildScenarioFeatureDraft(
+      {
+        timestamp: new Date().toISOString(),
+        marketData,
+        technical,
+        fundamental,
+        sentiment,
+        overall: { direction: prelimDirection },
+      },
+      goldDeviation ?? 0,
+      consecutiveDays,
+    );
+    const history = featRepo.listForSimilarity(200);
+    const scoreMap = new Map(reportsRepo.getRecent(365).map(r => [r.id, { score: r.overallScore, direction: r.direction }]));
+    preSimilar = findSimilarPatterns(draftToScenarioFeature(draft), history, scoreMap, {
+      excludeDate: today,
+      topK: 8,
+      filledOnly: true,
+    });
+    scenarioProbs = computeScenarioProbabilities(preSimilar);
+    if (scenarioProbs.source === 'historical') {
+      console.log(`  📊 ${scenarioProbs.note}`);
+    }
+  } catch { /* ignore */ }
+
+  const orchestrateOpts: OrchestrateOptions = {
+    macroRegime,
+    recentReportsContext,
+    scenarioProbs,
+    causalChains,
+  };
+
   // Step 3: 综合编排
   console.log('  🎯 Step 3: 综合编排...');
   const orchestrator = new OrchestratorAgent();
-  const report = await orchestrator.orchestrate(marketData, technical, fundamental, sentiment, fund, rebuttal, options.horizon);
+  const report = await orchestrator.orchestrate(
+    marketData,
+    technical,
+    fundamental,
+    sentiment,
+    fund,
+    rebuttal,
+    options.horizon,
+    orchestrateOpts,
+  );
   scoreBreakdown = extendBreakdownWithCalibration(
     scoreBreakdown,
     report.overall.calibration,
@@ -122,15 +217,9 @@ export async function analysisCommand(options: {
   const judgeVerdict = buildJudgeVerdict(technical, fundamental, sentiment, rebuttal, scoreBreakdown);
   console.log(formatJudgeVerdictConsole(judgeVerdict));
 
-  let goldDeviation: number | null = null;
-  try {
-    const closes = forwardFillCloses(new GoldPricesRepo(getDb()).getRecent(60));
-    goldDeviation = latestDeviationFromMA(closes, 20);
-  } catch { /* ignore */ }
-
-  const macroRegime = detectMacroRegime(marketData, goldDeviation);
   console.log(`  🌐 宏观阶段: ${formatMacroRegimeLine(macroRegime)}`);
 
+  const priceHistory = priceRepo.getRecent(800);
   const longTermOutlook = buildLongTermOutlook({
     technical: report.technical,
     fundamental: report.fundamental,
@@ -139,35 +228,22 @@ export async function analysisCommand(options: {
     overallScore: report.overall.score,
     overallDirection: report.overall.direction,
     macroRegime,
+    priceHistory,
   });
   report.longTermOutlook = longTermOutlook;
+  report.macroRegime = macroRegime;
+  report.causalChains = causalChains;
 
-  let similarPatterns: PatternMatch[] = [];
-  try {
-    const db = getDb();
-    const featRepo = new ScenarioFeaturesRepo(db);
-    const reportDate = report.timestamp.slice(0, 10);
-    const currentFeat = featRepo.getByDate(reportDate);
-    if (currentFeat) {
-      const history = featRepo.listForSimilarity(200);
-      const recentReports = new ReportsRepo(db).getRecent(365);
-      const scoreMap = new Map(recentReports.map(r => [r.id, { score: r.overallScore, direction: r.direction }]));
-      similarPatterns = findSimilarPatterns(currentFeat, history, scoreMap, {
-        excludeDate: reportDate,
-        topK: 5,
-        filledOnly: true,
-      });
-      if (similarPatterns.length > 0) {
-        console.log('  📜 历史相似日（已回填 5 日收益）:');
-        for (const p of similarPatterns.slice(0, 3)) {
-          const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : 'N/A';
-          console.log(`     ${p.date} 相似度 ${(p.similarity * 100).toFixed(0)}% → 5日后 ${ret}（当时 ${p.score} 分）`);
-        }
-      } else {
-        console.log('  📜 历史相似日: 样本不足（需更多已回填的 scenario_features）');
-      }
+  let similarPatterns: PatternMatch[] = preSimilar;
+  if (similarPatterns.length > 0) {
+    console.log('  📜 历史相似日（已回填 5 日收益）:');
+    for (const p of similarPatterns.slice(0, 3)) {
+      const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : 'N/A';
+      console.log(`     ${p.date} 相似度 ${(p.similarity * 100).toFixed(0)}% → 5日后 ${ret}（当时 ${p.score} 分）`);
     }
-  } catch { /* ignore */ }
+  } else {
+    console.log('  📜 历史相似日: 样本不足（需更多已回填的 scenario_features）');
+  }
 
   const manifest = buildRunManifest({
     horizon: options.horizon,
@@ -222,6 +298,97 @@ export async function analysisCommand(options: {
   return 0;
 }
 
+/** Smart 平稳日：复用上一报告，返回 null 表示需转完整分析 */
+async function runSmartAnalysis(
+  options: {
+    horizon: Horizon;
+    json: boolean;
+    jsonLegacy: boolean;
+    save: boolean;
+    md: boolean;
+  },
+  gate: import('../utils/analysis-gate.js').AnalysisGateResult,
+  priceRepo: GoldPricesRepo,
+  startedAt: string,
+): Promise<number | null> {
+  const db = getDb();
+  const reportsRepo = new ReportsRepo(db);
+  const today = todayDate();
+  const prevRow = reportsRepo.getRecent(14).find(r => r.date < today);
+  if (!prevRow) return null;
+
+  const previous = parseReportJson(prevRow.reportJson);
+  if (!previous) return null;
+
+  let goldDeviation: number | null = null;
+  try {
+    goldDeviation = latestDeviationFromMA(forwardFillCloses(priceRepo.getRecent(60)), 20);
+  } catch { /* ignore */ }
+
+  const macroRegime = detectMacroRegime(previous.marketData, goldDeviation);
+  const report = buildSmartReport(previous, macroRegime, gate, prevRow.date);
+  report.macroRegime = macroRegime;
+
+  const scoreBreakdown = buildScoreBreakdown(
+    report.technical,
+    report.fundamental,
+    report.sentiment,
+    report.rebuttal,
+  );
+  const judgeVerdict = buildJudgeVerdict(
+    report.technical,
+    report.fundamental,
+    report.sentiment,
+    report.rebuttal,
+    scoreBreakdown,
+  );
+
+  reportsRepo.insert({
+    date: today,
+    horizon: options.horizon,
+    reportJson: JSON.stringify(report),
+    overallScore: report.overall.score,
+    direction: report.overall.direction,
+  });
+
+  const manifest = buildRunManifest({
+    horizon: options.horizon,
+    startedAt,
+    report,
+    scoreBreakdown,
+    macroRegime,
+    judgeVerdict,
+    similarPatterns: [],
+    longTermOutlook: report.longTermOutlook,
+  });
+
+  console.log('  ✅ Smart 简版报告已生成（零 LLM）');
+
+  if (options.json) {
+    console.log(JSON.stringify(wrapAnalysisOutputV1(manifest, report), null, 2));
+  } else {
+    printReport(report, options.horizon, scoreBreakdown, { macroRegime });
+  }
+
+  if (options.save) {
+    const fs = await import('node:fs');
+    const filename = `goldrush-analysis-${today}.json`;
+    fs.writeFileSync(filename, JSON.stringify(wrapAnalysisOutputV1(manifest, report), null, 2), 'utf-8');
+    console.log(`\n💾 报告已保存到 ${filename}`);
+  }
+
+  if (options.md) {
+    const fs = await import('node:fs');
+    const docsDir = 'docs';
+    if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
+    const filename = `${docsDir}/goldrush-analysis-${today}.md`;
+    fs.writeFileSync(filename, formatReportMarkdown(report, options.horizon, { macroRegime, scoreBreakdown }), 'utf-8');
+    console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
+  }
+
+  return 0;
+}
+
 function printReport(
   report: GoldAnalysisReport,
   horizon: Horizon,
@@ -242,6 +409,9 @@ function printReport(
 
   if (extras?.macroRegime) {
     console.log(`\n  🌐 宏观阶段: ${formatMacroRegimeLine(extras.macroRegime)}`);
+  }
+  if (report.causalChains?.length) {
+    console.log('\n' + formatCausalChainsConsole(report.causalChains, '  '));
   }
   if (extras?.judgeVerdict) {
     console.log('\n' + formatJudgeVerdictConsole(extras.judgeVerdict, '  '));
