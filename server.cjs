@@ -1150,7 +1150,7 @@ function renderArticle(mdFilename, rawMarkdown) {
   </div>
 
   <script>
-    const md = \`${esc(mdContent(displayMd))}\`;
+    const md = \`${mdContent(displayMd)}\`;
     const tocIds = ${JSON.stringify(tocItems.map(t => t.id))};
     const tocTitles = ${JSON.stringify(tocItems.map(t => t.title))};
 
@@ -1173,7 +1173,9 @@ function mdContent(raw) {
   return raw
     .replace(/\\/g, '\\\\')
     .replace(/\`/g, '\\`')
-    .replace(/\$/g, '\\$');
+    .replace(/\$/g, '\\$')
+    // 防止 </script> 注入关闭脚本标签
+    .replace(/<\/script>/gi, '<\\/script>');
 }
 
 // ===== HTTP 服务 =====
