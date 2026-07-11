@@ -30,12 +30,16 @@ function extractScore(md) {
   return { score, direction };
 }
 
-/** 提取四维度评分 */
+/** 提取四维度评分（仅匹配表格行，避免正文中误匹配） */
 function extractDimensionScores(md) {
+  const seen = new Set();
   const dims = [];
-  const pattern = /(技术面|基本面|情绪面|基金面)\D*?(\d+)\/100\D*?([^(（]+)/g;
+  // 仅匹配表格行：| 技术面 | 59/100 | ...
+  const pattern = /^\| (技术面|基本面|情绪面|基金面) \| (\d+)\/100/mg;
   let m;
   while ((m = pattern.exec(md)) !== null) {
+    if (seen.has(m[1])) continue;
+    seen.add(m[1]);
     dims.push({ name: m[1], score: parseInt(m[2], 10) });
   }
   return dims;
@@ -224,11 +228,17 @@ function summarizeSimilarDays(similar) {
   };
 }
 
-/** 渲染 Markdown 前去掉已在仪表盘展示的冗余块 */
+/** 渲染 Markdown 前去掉已在仪表盘/侧栏展示的冗余块 */
 function stripDashboardDuplicates(md) {
-  return md
-    .replace(/## 📊 评分构成[\s\S]*?(?=\n## )/, '')
-    .replace(/## 综合研判[\s\S]*?(?=\n## )/, '');
+  // Helper: strip a Markdown section by its h2 title
+  const stripSection = (title) => {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return md.replace(new RegExp(`## ${escaped}[\\s\\S]*?(?=\\n## |\\n---|\\s*$)`, ''), '');
+  };
+  md = stripSection('📊 评分构成');
+  md = stripSection('综合研判');
+  md = stripSection('📈 四维度摘要');
+  return md;
 }
 
 /** 校准样本不足横幅 */
@@ -394,6 +404,12 @@ function scoreBadge(score) {
   else if (score >= 55) { color = '#f59e0b'; label = '中性'; }
   else { color = '#ef4444'; label = '偏空'; }
   return `<span class="s-badge" style="background:${color}22;color:${color};border-color:${color}44">${score}<span class="s-label">${label}</span></span>`;
+}
+
+/** 从文件名提取日期字符串（YYYY-MM-DD），无法提取则返回空串（排在末尾） */
+function extractFileDate(filename) {
+  const m = filename.match(/(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
 }
 
 // ===== 文件列表页（含搜索过滤排序） =====
@@ -1379,7 +1395,17 @@ const server = http.createServer((req, res) => {
         res.writeHead(500);
         return res.end('Server error');
       }
-      const mdFiles = allFiles.filter(f => f.endsWith('.md')).sort().reverse();
+      const mdFiles = allFiles
+        .filter(f => f.endsWith('.md'))
+        .sort((a, b) => {
+          const da = extractFileDate(a);
+          const db = extractFileDate(b);
+          // 最新在前，无日期的排最后
+          if (da && !db) return -1;
+          if (!da && db) return 1;
+          if (da && db && da !== db) return db.localeCompare(da);
+          return b.localeCompare(a);
+        });
       const fileInfos = getFileInfos(mdFiles);
       const html = renderIndex(fileInfos);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
