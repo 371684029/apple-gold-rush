@@ -42,6 +42,7 @@ import type { InstitutionalSignal } from '../types/institutional.js';
 import { InstitutionalFlowsRepo } from '../db/institutional-flows.js';
 import { ensureInstitutionalFlows } from '../utils/ensure-flows.js';
 import { computeInstitutionalSignal } from '../indicators/flow-signal.js';
+import { formatQuantScoreConsole } from '../indicators/quant-score.js';
 import type { PatternMatch } from '../types/calibration.js';
 
 export async function analysisCommand(options: {
@@ -414,6 +415,7 @@ async function runSmartAnalysis(
     horizon: options.horizon,
     reportJson: JSON.stringify(report),
     overallScore: report.overall.score,
+    quantScore: report.overall.quantScore ?? null,
     direction: report.overall.direction,
   });
 
@@ -501,6 +503,14 @@ function printReport(
   console.log(`\n  综合研判: ${directionMark(directionDisplay)} ${scoreDisplay}/100`);
   if (overall?.score) {
     console.log(`  ${scoreBar(overall.score)}`);
+  }
+  // 双打分对比：LLM vs 量化
+  if (overall?.quantScore != null) {
+    const delta = overall.score - overall.quantScore;
+    const deltaStr = delta > 0 ? `LLM偏高 +${delta}` : delta < 0 ? `LLM偏低 ${delta}` : '一致';
+    const quantDir = overall.quantScore >= 58 ? 'bullish' : overall.quantScore <= 42 ? 'bearish' : 'neutral';
+    console.log(`  🔢 量化评分: ${scoreBar(overall.quantScore)}`);
+    console.log(`     量化=${overall.quantScore} ${directionMark(quantDir)} | LLM=${overall.score} | 偏差=${deltaStr}`);
   }
   if (advice) {
     console.log(`  💡 ${advice.emoji} ${advice.action}`);

@@ -74,6 +74,7 @@ function initializeTables(db: Database.Database): void {
       horizon     TEXT,
       report_json TEXT,
       overall_score INTEGER,
+      quant_score REAL,
       direction   TEXT,
       created_at  TEXT DEFAULT (datetime('now'))
     )
@@ -145,7 +146,19 @@ function initializeTables(db: Database.Database): void {
   db.exec(goldPricesDDL);
   db.exec(fundNavDDL);
   db.exec(analysisReportsDDL);
+
+  // 迁移：为旧数据库添加 quant_score 列（幂等，列已存在时忽略错误）
+  try {
+    db.exec('ALTER TABLE analysis_reports ADD COLUMN quant_score REAL');
+  } catch { /* 列已存在则忽略 */ }
+
   db.exec(scenarioFeaturesDDL);
+
+  // 迁移：为旧 scenario_features 表添加主力相关列（幂等）
+  try { db.exec('ALTER TABLE scenario_features ADD COLUMN cftc_percentile REAL'); } catch { /* ok */ }
+  try { db.exec('ALTER TABLE scenario_features ADD COLUMN etf_flow_5d REAL'); } catch { /* ok */ }
+  try { db.exec('ALTER TABLE scenario_features ADD COLUMN flow_score REAL'); } catch { /* ok */ }
+
   db.exec(searchCacheDDL);
   db.exec(institutionalFlowsDDL);
 

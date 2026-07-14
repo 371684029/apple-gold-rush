@@ -192,6 +192,8 @@ export interface GoldAnalysisReport {
     calibration: CalibrationContext;
     shortTerm: ShortTermStrategy;
     midTerm: MidTermStrategy;
+    /** 纯量化评分（零 LLM，100% 可复现） */
+    quantScore?: number;
   };
   /** 1/3/5 年等多期限方向预期（本地规则推导，非价格预测） */
   longTermOutlook?: LongTermOutlook;
@@ -237,6 +239,7 @@ export interface AnalysisReportRecord {
   horizon: string;
   reportJson: string;
   overallScore: number;
+  quantScore?: number;
   direction: Direction;
   createdAt: string;
 }

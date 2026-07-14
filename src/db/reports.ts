@@ -8,6 +8,7 @@ export interface AnalysisReportRow {
   horizon: string;
   reportJson: string;
   overallScore: number;
+  quantScore: number | null;
   direction: Direction;
   createdAt: string;
 }
@@ -18,9 +19,9 @@ export class ReportsRepo {
   /** 插入分析报告 */
   insert(report: Omit<AnalysisReportRow, 'id' | 'createdAt'>): number {
     const result = this.db.prepare(`
-      INSERT INTO analysis_reports (date, horizon, report_json, overall_score, direction)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(report.date, report.horizon, report.reportJson, report.overallScore, report.direction);
+      INSERT INTO analysis_reports (date, horizon, report_json, overall_score, quant_score, direction)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(report.date, report.horizon, report.reportJson, report.overallScore, report.quantScore ?? null, report.direction);
     return Number(result.lastInsertRowid);
   }
 
@@ -78,6 +79,7 @@ function mapRow(row: Record<string, unknown>): AnalysisReportRow {
     horizon: row.horizon as string,
     reportJson: row.report_json as string,
     overallScore: row.overall_score as number,
+    quantScore: row.quant_score as number | null,
     direction: row.direction as Direction,
     createdAt: row.created_at as string,
   };

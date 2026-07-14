@@ -28,6 +28,7 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
 
   // 计算校准
   const report = repo.computeCalibration(options.days);
+  const quantReport = repo.computeQuantCalibration(options.days);
 
   let tearsheet = null as ReturnType<typeof buildCalibrationTearsheet> | null;
   if (options.tearsheet || options.md) {
@@ -63,6 +64,41 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
         : '校准';
 
     console.log(`  ${bucket.scoreRange.padEnd(8)} ${String(bucket.sampleSize).padStart(4)}  ${(bucket.actualUpProbability * 100).toFixed(0).padStart(8)}%    ${bucket.avgReturn > 0 ? '+' : ''}${bucket.avgReturn.toFixed(1).padStart(6)}%   ${biasStr}  ${systemBiasStr}`);
+  }
+
+  // 量化评分校准表格（如果存在量化数据）
+  if (quantReport.buckets.length > 0) {
+    console.log(`\n  🔢 量化评分校准\n`);
+    console.log('  评分区间  样本  实际涨概率  平均涨幅  偏差      系统偏差');
+    console.log(separator('─', 55));
+
+    for (const bucket of quantReport.buckets) {
+      const biasStr = bucket.systematicBias === 'optimistic'
+        ? chalk.red(`偏乐观${bucket.calibrationError.toFixed(0)}%`)
+        : bucket.systematicBias === 'pessimistic'
+          ? chalk.green(`偏保守${bucket.calibrationError.toFixed(0)}%`)
+          : chalk.cyan('校准良好');
+
+      const systemBiasStr = bucket.systematicBias === 'optimistic' ? '乐观'
+        : bucket.systematicBias === 'pessimistic' ? '保守'
+          : '校准';
+
+      console.log(`  ${bucket.scoreRange.padEnd(8)} ${String(bucket.sampleSize).padStart(4)}  ${(bucket.actualUpProbability * 100).toFixed(0).padStart(8)}%    ${bucket.avgReturn > 0 ? '+' : ''}${bucket.avgReturn.toFixed(1).padStart(6)}%   ${biasStr}  ${systemBiasStr}`);
+    }
+
+    // 对比摘要
+    const llmAvgError = report.buckets.length > 0
+      ? report.buckets.reduce((sum, b) => sum + b.calibrationError, 0) / report.buckets.length
+      : 0;
+    const quantAvgError = quantReport.buckets.length > 0
+      ? quantReport.buckets.reduce((sum, b) => sum + b.calibrationError, 0) / quantReport.buckets.length
+      : 0;
+
+    if (llmAvgError > 0 || quantAvgError > 0) {
+      const better = llmAvgError < quantAvgError ? 'LLM评分' : '量化评分';
+      const diff = Math.abs(llmAvgError - quantAvgError).toFixed(1);
+      console.log(`\n  📊 系统对比: ${better}平均校准误差更小 (差${diff}%)`);
+    }
   }
 
   // --detail：按评分区间展开明细

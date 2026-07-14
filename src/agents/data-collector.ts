@@ -307,9 +307,9 @@ export class DataCollectorAgent extends BaseAgent {
       shanghaiLow: data.shanghai?.low?.value ?? null,
       etfNav: data.etf?.nav?.value ?? null,
       etfChange: data.etf?.nav?.change ?? null,
-      dollarIndex: data.dollarIndex?.value?.value ?? null,
-      us10yYield: data.usTreasury?.yield10y?.value ?? null,
-      tipsYield: data.usTreasury?.tips?.value ?? null,
+      dollarIndex: data.dollarIndex?.value?.source !== 'N/A' ? (data.dollarIndex?.value?.value ?? null) : null,
+      us10yYield: data.usTreasury?.yield10y?.source !== 'N/A' ? (data.usTreasury?.yield10y?.value ?? null) : null,
+      tipsYield: data.usTreasury?.tips?.source !== 'N/A' ? (data.usTreasury?.tips?.value ?? null) : null,
     });
 
     if (data.etf?.nav?.value != null) {

@@ -140,6 +140,95 @@ export class CalibrationRepo {
     };
   }
 
+  /** 计算量化评分校准报告（使用 quant_score 而非 overall_score） */
+  computeQuantCalibration(days: number, T: number = 5): CalibrationReport {
+    const reports = this.reports.getRecent(days);
+    const dateRange = reports.length > 0
+      ? { from: reports[reports.length - 1].date, to: reports[0].date }
+      : { from: 'N/A', to: 'N/A' };
+
+    // Filter to reports with quant scores
+    const reportsWithQuant = reports.filter(r => r.quantScore !== null);
+    const buckets: CalibrationBucket[] = [];
+    let totalValid = 0;
+
+    for (const { range, min, max } of SCORE_BUCKETS) {
+      const isLast = max === 100;
+      const matching = reportsWithQuant.filter(r => (r.quantScore ?? 0) >= min && (isLast ? (r.quantScore ?? 0) <= max : (r.quantScore ?? 0) < max));
+      if (matching.length === 0) continue;
+
+      let upCount = 0;
+      let totalReturn = 0;
+      let validCount = 0;
+
+      for (const report of matching) {
+        const currentPrice = this.prices.getByDate(report.date);
+        const futurePrices = this.prices.getAfter(report.date, T);
+        const futurePrice = futurePrices.length >= T ? futurePrices[T - 1] : null;
+
+        if (!currentPrice?.londonClose || !futurePrice?.londonClose) continue;
+
+        const futureReturn = (futurePrice.londonClose - currentPrice.londonClose) / currentPrice.londonClose * 100;
+        if (futureReturn > 0) upCount++;
+        totalReturn += futureReturn;
+        validCount++;
+      }
+
+      if (validCount === 0) continue;
+      totalValid += validCount;
+
+      const avgReturn = totalReturn / validCount;
+      const actualUpProbability = upCount / validCount;
+      const midScore = (min + max) / 2;
+      const calibrationError = Math.abs(midScore - actualUpProbability * 100);
+
+      const predictedDirection: Direction = midScore > 50 ? 'bullish' : midScore < 50 ? 'bearish' : 'neutral';
+
+      buckets.push({
+        scoreRange: range,
+        sampleSize: validCount,
+        predictedDirection,
+        actualUpCount: upCount,
+        actualUpProbability,
+        avgReturn,
+        calibrationError,
+        systematicBias: calibrationError < 5 ? 'calibrated'
+          : midScore > actualUpProbability * 100 ? 'optimistic' : 'pessimistic',
+      });
+    }
+
+    // 计算整体偏差
+    const overallBias = buckets.length > 0
+      ? buckets.reduce((sum, b) => sum + (b.systematicBias === 'optimistic' ? b.calibrationError : b.systematicBias === 'pessimistic' ? -b.calibrationError : 0), 0) / buckets.length
+      : 0;
+
+    // 计算风险预警质量
+    const riskAlertQuality = this.computeRiskAlertQuality(reportsWithQuant as AnalysisReportRow[], T);
+
+    // 生成建议
+    const recommendations: string[] = [];
+    const optimisticBuckets = buckets.filter(b => b.systematicBias === 'optimistic' && b.calibrationError > 10);
+    if (optimisticBuckets.length > 0) {
+      recommendations.push(`量化评分区间 ${optimisticBuckets.map(b => b.scoreRange).join('/')} 严重偏乐观，建议prompt中增加谨慎修正`);
+    }
+    if (riskAlertQuality.missedRate > 0.25) {
+      recommendations.push(`漏报率 ${Math.round(riskAlertQuality.missedRate * 100)}%，建议增强反驳Agent强度`);
+    }
+    if (recommendations.length === 0) {
+      recommendations.push('量化评分校准状态良好，继续保持');
+    }
+
+    return {
+      period: { days, ...dateRange },
+      totalReports: reportsWithQuant.length,
+      validReports: totalValid,
+      buckets,
+      overallBias,
+      riskAlertQuality,
+      recommendations,
+    };
+  }
+
   /** 计算风险预警质量 */
   private computeRiskAlertQuality(reports: AnalysisReportRow[], T: number): RiskAlertQuality {
     let redAlertCount = 0;

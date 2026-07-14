@@ -30,6 +30,7 @@ export interface ScoreBreakdown {
     reason: string;
   };
   finalScore: number;
+  quantScore?: number;
 }
 
 const STRENGTH_LABEL: Record<RebuttalStrength, string> = {
@@ -80,7 +81,7 @@ export function extendBreakdownWithCalibration(
   displayScore: number,
 ): ScoreBreakdown {
   if (!cal?.calibrationApplied || cal.calibrationOffset == null || cal.calibrationOffset === 0) {
-    return { ...bd, finalScore: displayScore };
+    return { ...bd, finalScore: displayScore, quantScore: bd.quantScore };
   }
   const rawScore = cal.rawScore ?? bd.finalScore;
   return {
@@ -92,6 +93,7 @@ export function extendBreakdownWithCalibration(
       reason: cal.calibrationReason ?? '历史校准修正',
     },
     finalScore: displayScore,
+    quantScore: bd.quantScore,
   };
 }
 
@@ -100,6 +102,18 @@ function fmtDelta(n: number, decimals = 1): string {
   if (rounded > 0) return `+${rounded}`;
   if (rounded === 0) return '±0';
   return String(rounded);
+}
+
+/** 格式化 LLM 与量化评分的对比字符串 */
+export function formatQuantScoreDiff(llmScore: number, quantScore: number): string {
+  const diff = llmScore - quantScore;
+  const absDiff = Math.abs(diff);
+  if (diff > 0) {
+    return `LLM=${llmScore} vs 量化=${quantScore} (LLM偏高 +${absDiff})`;
+  } else if (diff < 0) {
+    return `LLM=${llmScore} vs 量化=${quantScore} (LLM偏低 -${absDiff})`;
+  }
+  return `LLM=${llmScore} vs 量化=${quantScore} (一致)`;
 }
 
 /** CLI 终端输出（带缩进） */
@@ -139,6 +153,16 @@ export function formatScoreBreakdownConsole(bd: ScoreBreakdown, indent = '  '): 
 
   lines.push(`${indent}${bar}`);
   lines.push(`${indent}  最终综合分`.padEnd(indent.length + 14) + `= ${bd.finalScore}`);
+
+  if (bd.quantScore !== undefined) {
+    const diff = bd.finalScore - bd.quantScore;
+    const absDiff = Math.abs(diff);
+    const diffStr = diff > 0 ? `LLM偏高 +${absDiff}` : diff < 0 ? `LLM偏低 -${absDiff}` : '一致';
+    const qBar = '█'.repeat(Math.round(bd.quantScore / 100 * 20)) + '░'.repeat(20 - Math.round(bd.quantScore / 100 * 20));
+    lines.push(`${indent}  量化评分  ${qBar} ${bd.quantScore}/100`);
+    lines.push(`${indent}  LLM偏差    ${diffStr}`);
+  }
+
   lines.push(`${indent}  （基金面估值不参与均分，仅作策略参考）`);
 
   return lines.join('\n');
@@ -172,6 +196,13 @@ export function formatScoreBreakdownMarkdown(bd: ScoreBreakdown): string[] {
     );
   }
   lines.push(`| **最终综合分** | ${bd.calibration ? '校准后展示分' : `看空隐含 ${r.bearishImpliedScore}，公式 (${r.bearishImpliedScore}−${bd.initialScore})×${r.multiplier}`} | | **${bd.finalScore}** |`);
+  if (bd.quantScore !== undefined) {
+    const diff = bd.finalScore - bd.quantScore;
+    const absDiff = Math.abs(diff);
+    const diffLabel = diff > 0 ? 'LLM偏高' : diff < 0 ? 'LLM偏低' : '一致';
+    const diffStr = diff > 0 ? `+${absDiff}` : diff < 0 ? `-${absDiff}` : '0';
+    lines.push(`| 量化对比 | 量化=${bd.quantScore} | **${diffStr}** | ${diffLabel} |`);
+  }
   lines.push('');
   lines.push('> 基金面估值不参与均分，仅作策略参考。');
   lines.push('');

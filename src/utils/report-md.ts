@@ -90,6 +90,13 @@ export function formatReportMarkdown(
   } else if (cal?.systematicBias === '样本不足') {
     lines.push(`- 校准参考：样本不足（${na(cal.sampleSize)} 条），分数未经统计修正`);
   }
+  if (overall?.quantScore !== undefined) {
+    const diff = (overall.score ?? 0) - overall.quantScore;
+    const absDiff = Math.abs(diff);
+    const diffLabel = diff > 0 ? `LLM偏高 +${absDiff}` : diff < 0 ? `LLM偏低 -${absDiff}` : '一致';
+    const diffEmoji = diff > 5 ? '⚠️' : diff < -5 ? '✅' : '➡️';
+    lines.push(`- 🔢 量化评分: **${overall.quantScore}/100** | LLM: ${na(overall.score)}/100 | ${diffEmoji} ${diffLabel}`);
+  }
   lines.push('');
 
   if (report.causalChains?.length) {

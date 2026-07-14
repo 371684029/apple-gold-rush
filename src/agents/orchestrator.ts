@@ -9,6 +9,7 @@ import { ReportsRepo } from '../db/reports.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { InstitutionalFlowsRepo } from '../db/institutional-flows.js';
 import { computeInstitutionalSignal } from '../indicators/flow-signal.js';
+import { computeQuantScore } from '../indicators/quant-score.js';
 import { resolveOverallScore, enforceOverallScore } from '../utils/overall-score.js';
 import { applyCalibrationScore, directionFromScore } from '../utils/calibration-adjust.js';
 import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
@@ -175,6 +176,36 @@ export class OrchestratorAgent extends BaseAgent {
     const displayScore = calAdjust.calibratedScore;
     const displayDirection = directionFromScore(displayScore);
 
+    // 纯量化评分（与 LLM 评分并行，用于对比校准）
+    let quantScore: number | undefined;
+    try {
+      const pricesRepo = new GoldPricesRepo(db);
+      const recentRecords = pricesRepo.getRecent(120);
+      const closes = forwardFillCloses(recentRecords);
+      const sorted = closes.filter((v): v is number => v != null);
+      // 提取 DXY 序列
+      const dxy = recentRecords.map(r => r.dollarIndex).filter((v): v is number => v != null);
+      // 提取 10Y 美债收益率序列
+      const us10y = recentRecords.map(r => r.us10yYield).filter((v): v is number => v != null);
+      // 提取 TIPS 实际收益率序列
+      const tips = recentRecords.map(r => r.tipsYield).filter((v): v is number => v != null);
+      const flowSignal = computeInstitutionalSignal(
+        marketData?.london?.price?.value ?? null,
+      );
+      const quantResult = computeQuantScore({
+        closes: sorted,
+        dxy: dxy.length >= 20 ? dxy : undefined,
+        us10y: us10y.length >= 20 ? us10y : undefined,
+        tips: tips.length >= 20 ? tips : undefined,
+        flowSignal,
+        regimeTag: opts.macroRegime.tag,
+      });
+      quantScore = quantResult.score;
+    } catch {
+      // 量化评分失败不阻塞主流程
+      quantScore = undefined;
+    }
+
     const schema = {
       type: 'object',
       properties: {
@@ -318,6 +349,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         overall: {
           score: fallbackScore,
           direction: 'neutral' as Direction,
+          quantScore: undefined,
           scenarios: {
             base: { probability: 50, description: '编排超时，无情景分析', goldPrice: 'N/A', action: '维持现有仓位', confidence: 'low' },
             upside: { probability: 25, description: '无数据（分析异常）', goldPrice: 'N/A', trigger: 'N/A', action: '观望', confidence: 'low' },
@@ -359,6 +391,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         scenarios,
         score: enforceOverallScore(orchestratorResult.overall.score, displayScore),
         direction: displayDirection,
+        quantScore,
         calibration: {
           ...(calibrationContext ?? {
             scoreRange: 'N/A',
@@ -391,6 +424,7 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         horizon,
         reportJson: JSON.stringify(report),
         overallScore: report.overall.score,
+        quantScore: report.overall.quantScore ?? null,
         direction: report.overall.direction,
       });
 

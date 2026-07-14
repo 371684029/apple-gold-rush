@@ -30,6 +30,18 @@ function extractScore(md) {
   return { score, direction };
 }
 
+/** 提取量化评分对比行：🔢 量化评分: 63/100 | LLM: 67/100 | 偏差: +4 */
+function extractQuantScore(md) {
+  const m = md.match(/量化评分[：:]\s*(\d+)\/100\s*\|\s*LLM[：:]\s*(\d+)\/100\s*\|\s*偏差[：:]\s*([+-]?\d+)/);
+  if (!m) {
+    // fallback: match just the quant score alone
+    const alt = md.match(/🔢\s*量化评分[：:]\s*(\d+)\/100/);
+    if (!alt) return null;
+    return { quantScore: parseInt(alt[1], 10), llmScore: null, diff: null };
+  }
+  return { quantScore: parseInt(m[1], 10), llmScore: parseInt(m[2], 10), diff: parseInt(m[3], 10) };
+}
+
 /** 提取四维度评分（仅匹配表格行，避免正文中误匹配） */
 function extractDimensionScores(md) {
   const seen = new Set();
@@ -215,7 +227,7 @@ function plainAdvice(score, direction) {
 
 /** 30秒快速阅读卡片 — 首屏决策三件套 */
 function renderQuickRead(meta) {
-  const { scoreInfo, advice, dims, calibration } = meta;
+  const { scoreInfo, advice, dims, calibration, quantInfo } = meta;
   if (!scoreInfo) return '';
 
   const dimLabels = dims && dims.length
@@ -229,9 +241,15 @@ function renderQuickRead(meta) {
     ? `⚠️ 校准样本仅${calibration.sample}次，仅供参考`
     : '';
 
+  // 量化评分小标签
+  const quantBadge = quantInfo?.quantScore != null
+    ? `<span class="qr-quant">🔢 量化 ${quantInfo.quantScore}</span>`
+    : '';
+
   return `<div class="quick-read-card" style="border-left-color:${advice.color}">
     <div class="qr-left">
       <div class="qr-score">${scoreInfo.score}<span class="qr-total">/100</span></div>
+      ${quantBadge}
       <div class="qr-dir">${advice.emoji} ${advice.label}</div>
     </div>
     <div class="qr-body">
@@ -340,7 +358,7 @@ function renderSampleWarn(calibration) {
 
 /** 预测仪表盘（文章页顶部）— 首屏只留决策三件套，信任条/短期 tip 可折叠 */
 function renderPredictionDashboard(meta) {
-  const { scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro } = meta;
+  const { scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo } = meta;
   if (!scoreInfo) return '';
 
   const score = scoreInfo.score;
@@ -383,6 +401,24 @@ function renderPredictionDashboard(meta) {
     ? trustParts.join('<br>')
     : '样本积累中，结论供参考，请结合定投纪律';
 
+  // 量化评分参考线
+  const quantLine = quantInfo?.quantScore != null ? (() => {
+    const q = quantInfo.quantScore;
+    const d = quantInfo.diff ?? (score - q);
+    const absD = Math.abs(d);
+    let label, color;
+    if (d > 5) { label = `LLM 偏高 +${absD}`; color = '#ef4444'; }
+    else if (d < -5) { label = `LLM 偏低 -${absD}`; color = '#22c55e'; }
+    else if (d > 0) { label = `LLM 偏高 +${absD}`; color = '#f59e0b'; }
+    else if (d < 0) { label = `LLM 偏低 -${absD}`; color = '#f59e0b'; }
+    else { label = '一致'; color = '#94a3b8'; }
+    return `<div class="pred-quant-bar">
+      <span class="pred-quant-label">🔢 量化</span>
+      <span class="pred-quant-value">${q}</span>
+      <span class="pred-quant-diff" style="color:${color}">${label}</span>
+    </div>`;
+  })() : '';
+
   return `<section class="pred-dashboard" aria-label="预测结论">
     ${renderSampleWarn(calibration)}
     <div class="pred-hero" style="--pred-color:${advice.color}">
@@ -390,6 +426,7 @@ function renderPredictionDashboard(meta) {
         <div class="pred-score-num">${score}</div>
         <div class="pred-score-sub">综合分 / 100</div>
         <div class="pred-score-meter"><div class="pred-score-fill" style="width:${score}%;background:${advice.color}"></div></div>
+        ${quantLine}
         ${calibBadge}
         ${macroLine}
       </div>
@@ -460,6 +497,7 @@ function getFileInfos(files) {
     const stats = fs.statSync(fp);
     const md = fs.readFileSync(fp, 'utf-8');
     const scoreInfo = extractScore(md);
+    const quantInfo = extractQuantScore(md);
     const dims = extractDimensionScores(md);
     const kind = classifyDoc(f);
     let dateLabel = f.replace(/\.md$/, '');
@@ -478,6 +516,7 @@ function getFileInfos(files) {
       score: scoreInfo?.score ?? null,
       direction: scoreInfo?.direction ?? null,
       dims,
+      quantInfo,
       mdLength: md.length,
       glance: extractQuickGlance(md),
       breakdown: extractScoreBreakdown(md),
@@ -933,18 +972,19 @@ function renderArticle(mdFilename, rawMarkdown) {
   const confidence = extractDataConfidence(rawMarkdown);
   const scenarios = extractScenarios(rawMarkdown);
   const strategies = extractStrategies(rawMarkdown);
+  const quantInfo = extractQuantScore(rawMarkdown);
   const advice = scoreInfo ? plainAdvice(scoreInfo.score, scoreInfo.direction) : null;
 
   // Quick-read card only for analysis
   const quickReadHtml = kind === 'analysis' ? renderQuickRead({
-    scoreInfo, advice, dims, calibration,
+    scoreInfo, advice, dims, calibration, quantInfo,
   }) : '';
 
   // Flow reports get specialized dashboard
   const flowDashboardHtml = kind === 'flow' ? renderFlowDashboard(rawMarkdown) : '';
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
-    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro,
+    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;
@@ -1244,6 +1284,21 @@ function renderArticle(mdFilename, rawMarkdown) {
     .pred-score-sub { font-size: 0.72rem; color: #64748b; margin-top: 4px; }
     .pred-score-meter { height: 6px; background: #0f172a; border-radius: 3px; margin-top: 10px; overflow: hidden; }
     .pred-score-fill { height: 100%; border-radius: 3px; transition: width 0.6s; }
+    /* 量化评分对比行 */
+    .pred-quant-bar {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 10px; padding: 6px 10px;
+      background: #131c2e; border-radius: 8px; border: 1px solid #1e293b;
+    }
+    .pred-quant-label { font-size: 0.7rem; color: #64748b; }
+    .pred-quant-value { font-size: 1rem; font-weight: 700; color: #94a3b8; }
+    .pred-quant-diff { font-size: 0.72rem; font-weight: 600; }
+    /* 快速阅读卡量化标签 */
+    .qr-quant {
+      display: block; text-align: center;
+      font-size: 0.65rem; color: #64748b;
+      padding: 2px 0;
+    }
     .pred-emoji { font-size: 1.5rem; margin-bottom: 4px; }
     .pred-headline { font-size: 1.35rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px; line-height: 1.35; }
     .pred-tag { font-size: 0.82rem; color: var(--pred-color); font-weight: 600; margin-bottom: 12px; }
