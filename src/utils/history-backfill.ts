@@ -20,7 +20,8 @@ export function listMissingLondonDates(
   for (let i = days - 1; i >= 0; i--) {
     const d = addCalendarDays(asOf, -i);
     const row = repo.getByDate(d);
-    if (!row || row.londonClose == null) {
+    // 0 视为缺失（历史脏数据 / LLM 占位）
+    if (!row || row.londonClose == null || row.londonClose <= 0) {
       missing.push(d);
     }
   }

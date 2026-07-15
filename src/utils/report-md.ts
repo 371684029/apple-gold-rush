@@ -17,6 +17,8 @@ import { formatCausalChainsMarkdown } from './gold-causal-rules.js';
 import type { LongTermOutlook } from '../types/analysis.js';
 import type { PatternMatch } from '../types/calibration.js';
 import type { ScoreBreakdown } from './score-breakdown.js';
+import type { DataQualityGate } from './data-quality-gate.js';
+import { formatDataQualityGateMarkdown, nonActionableAdvice } from './data-quality-gate.js';
 
 export interface ReportMarkdownExtras {
   macroRegime?: MacroRegime;
@@ -24,6 +26,7 @@ export interface ReportMarkdownExtras {
   similarPatterns?: PatternMatch[];
   scoreBreakdown?: ScoreBreakdown;
   longTermOutlook?: LongTermOutlook;
+  dataQualityGate?: DataQualityGate;
 }
 
 function dirText(d: string | undefined): string {
@@ -62,6 +65,11 @@ export function formatReportMarkdown(
   lines.push(`> 生成时间：${na(report.timestamp)}　|　视角：${horizonText(horizon)}　|　数据置信度：${na(report.dataQuality?.overallConfidence)}%`);
   lines.push('');
 
+  const dq = extras?.dataQualityGate;
+  if (dq) {
+    lines.push(formatDataQualityGateMarkdown(dq));
+  }
+
   const macro = extras?.macroRegime;
   if (macro) {
     lines.push('## 🌐 宏观阶段');
@@ -78,6 +86,13 @@ export function formatReportMarkdown(
   lines.push('## 综合研判');
   lines.push('');
   lines.push(`- 综合评分：**${na(overall?.score)}/100**（${dirText(overall?.direction)}）`);
+  if (dq && !dq.actionable) {
+    const naAdvice = nonActionableAdvice();
+    lines.push(`- ⛔ **操作结论已关闭**：${naAdvice.headline}`);
+    lines.push(`- 建议：${naAdvice.action}`);
+  } else if (dq?.tier === 'yellow') {
+    lines.push('- ⚠️ **降级可用**：建议结合量化分、CFTC 主力与置信度阅读操作建议');
+  }
   const cal = overall?.calibration;
   if (cal && cal.historicalAccuracy != null) {
     const pct5 = Math.round(cal.historicalAccuracy * 100);

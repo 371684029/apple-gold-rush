@@ -16,14 +16,14 @@ export interface EnsureHistoryResult {
   readyForAnalysis: boolean;
 }
 
-/** 统计窗口内有效 london_close 行数 */
+/** 统计窗口内有效 london_close 行数（>0） */
 export function countLondonRowsInWindow(
   repo: GoldPricesRepo,
   days: number,
   asOf: string = todayDate(),
 ): number {
   const from = addCalendarDays(asOf, -(days - 1));
-  return repo.getRange(from, asOf).filter(r => r.londonClose != null).length;
+  return repo.getRange(from, asOf).filter(r => r.londonClose != null && r.londonClose > 0).length;
 }
 
 /**
