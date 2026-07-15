@@ -6,30 +6,50 @@ import { addCalendarDays, todayDate } from '../utils/time.js';
 export class GoldPricesRepo {
   constructor(private db: Database.Database) {}
 
-  /** 插入或更新当日金价快照 */
+  /** 将 ≤0 视为缺失，避免 0 覆盖有效历史价 */
+  private static sanitize(v: number | null | undefined): number | null {
+    if (v == null || !Number.isFinite(v) || v === 0) return null;
+    return v;
+  }
+
+  /** 插入或更新当日金价快照（0/无效值不覆盖已有有效列） */
   upsert(record: Omit<GoldPriceRecord, 'createdAt'>): void {
+    const londonClose = GoldPricesRepo.sanitize(record.londonClose);
+    const londonHigh = GoldPricesRepo.sanitize(record.londonHigh);
+    const londonLow = GoldPricesRepo.sanitize(record.londonLow);
+    const shanghaiClose = GoldPricesRepo.sanitize(record.shanghaiClose);
+    const shanghaiHigh = GoldPricesRepo.sanitize(record.shanghaiHigh);
+    const shanghaiLow = GoldPricesRepo.sanitize(record.shanghaiLow);
+    const etfNav = GoldPricesRepo.sanitize(record.etfNav);
+    const dollarIndex = GoldPricesRepo.sanitize(record.dollarIndex);
+    const us10yYield = GoldPricesRepo.sanitize(record.us10yYield);
+    // tips 可为负，仅拒绝恰好 0 / 非有限
+    const tipsYield = record.tipsYield != null && Number.isFinite(record.tipsYield) && record.tipsYield !== 0
+      ? record.tipsYield
+      : null;
+
     this.db.prepare(`
       INSERT INTO gold_prices (date, london_close, london_high, london_low,
         shanghai_close, shanghai_high, shanghai_low, etf_nav, etf_change,
         dollar_index, us10y_yield, tips_yield)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(date) DO UPDATE SET
-        london_close = excluded.london_close,
-        london_high = excluded.london_high,
-        london_low = excluded.london_low,
-        shanghai_close = excluded.shanghai_close,
-        shanghai_high = excluded.shanghai_high,
-        shanghai_low = excluded.shanghai_low,
-        etf_nav = excluded.etf_nav,
-        etf_change = excluded.etf_change,
-        dollar_index = excluded.dollar_index,
-        us10y_yield = excluded.us10y_yield,
-        tips_yield = excluded.tips_yield
+        london_close = COALESCE(excluded.london_close, gold_prices.london_close),
+        london_high = COALESCE(excluded.london_high, gold_prices.london_high),
+        london_low = COALESCE(excluded.london_low, gold_prices.london_low),
+        shanghai_close = COALESCE(excluded.shanghai_close, gold_prices.shanghai_close),
+        shanghai_high = COALESCE(excluded.shanghai_high, gold_prices.shanghai_high),
+        shanghai_low = COALESCE(excluded.shanghai_low, gold_prices.shanghai_low),
+        etf_nav = COALESCE(excluded.etf_nav, gold_prices.etf_nav),
+        etf_change = COALESCE(excluded.etf_change, gold_prices.etf_change),
+        dollar_index = COALESCE(excluded.dollar_index, gold_prices.dollar_index),
+        us10y_yield = COALESCE(excluded.us10y_yield, gold_prices.us10y_yield),
+        tips_yield = COALESCE(excluded.tips_yield, gold_prices.tips_yield)
     `).run(
-      record.date, record.londonClose, record.londonHigh, record.londonLow,
-      record.shanghaiClose, record.shanghaiHigh, record.shanghaiLow,
-      record.etfNav, record.etfChange, record.dollarIndex,
-      record.us10yYield, record.tipsYield
+      record.date, londonClose, londonHigh, londonLow,
+      shanghaiClose, shanghaiHigh, shanghaiLow,
+      etfNav, record.etfChange ?? null, dollarIndex,
+      us10yYield, tipsYield,
     );
   }
 
@@ -100,20 +120,28 @@ export class GoldPricesRepo {
   }
 }
 
+/** 读库时把历史脏数据 0 当成 NULL（tips 允许负） */
+function mapNum(v: unknown, allowNegative = false): number | null {
+  if (v == null || typeof v !== 'number' || !Number.isFinite(v)) return null;
+  if (v === 0) return null;
+  if (!allowNegative && v < 0) return null;
+  return v;
+}
+
 function mapRow(row: Record<string, unknown>): GoldPriceRecord {
   return {
     date: row.date as string,
-    londonClose: row.london_close as number | null,
-    londonHigh: row.london_high as number | null,
-    londonLow: row.london_low as number | null,
-    shanghaiClose: row.shanghai_close as number | null,
-    shanghaiHigh: row.shanghai_high as number | null,
-    shanghaiLow: row.shanghai_low as number | null,
-    etfNav: row.etf_nav as number | null,
+    londonClose: mapNum(row.london_close),
+    londonHigh: mapNum(row.london_high),
+    londonLow: mapNum(row.london_low),
+    shanghaiClose: mapNum(row.shanghai_close),
+    shanghaiHigh: mapNum(row.shanghai_high),
+    shanghaiLow: mapNum(row.shanghai_low),
+    etfNav: mapNum(row.etf_nav),
     etfChange: row.etf_change as number | null,
-    dollarIndex: row.dollar_index as number | null,
-    us10yYield: row.us10y_yield as number | null,
-    tipsYield: row.tips_yield as number | null,
+    dollarIndex: mapNum(row.dollar_index),
+    us10yYield: mapNum(row.us10y_yield),
+    tipsYield: mapNum(row.tips_yield, true),
     createdAt: row.created_at as string,
   };
 }
