@@ -19,3 +19,9 @@ export {
   formatDataQualityGateMarkdown,
   nonActionableAdvice,
 } from './data-quality-gate.js';
+export {
+  evaluateDualScore,
+  formatDualScoreConsole,
+  formatDualScoreMarkdown,
+  DUAL_CONFLICT_THRESHOLD,
+} from './dual-score.js';

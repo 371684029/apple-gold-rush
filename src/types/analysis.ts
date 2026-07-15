@@ -194,6 +194,14 @@ export interface GoldAnalysisReport {
     midTerm: MidTermStrategy;
     /** 纯量化评分（零 LLM，100% 可复现） */
     quantScore?: number;
+    /** 量化因子明细（可选，供日报/Web 展示） */
+    quantFactors?: Record<string, {
+      name: string;
+      rawValue: number;
+      normalizedScore: number;
+      weight: number;
+      contribution: number;
+    }>;
   };
   /** 1/3/5 年等多期限方向预期（本地规则推导，非价格预测） */
   longTermOutlook?: LongTermOutlook;
