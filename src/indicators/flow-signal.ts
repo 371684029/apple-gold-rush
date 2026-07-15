@@ -186,7 +186,7 @@ export function computeCftcSignal(flows: CftcNetRecord[]): CftcSignal {
  * @param londonClose 当前伦敦金收盘价（可为 null）
  */
 export function computeEtfFlowSignal(flows: GldRecord[], londonClose: number | null): EtfFlowSignal {
-  if (flows.length < 5) {
+  if (flows.length === 0) {
     return {
       score: 50,
       direction: 'neutral',
@@ -196,6 +196,26 @@ export function computeEtfFlowSignal(flows: GldRecord[], londonClose: number | n
       divergence: false,
       divergenceLabel: '',
       summary: 'GLD 持仓数据不足，暂无法判断',
+    };
+  }
+
+  // 样本 <5：用最新吨数 + 日变化做粗判（东财新闻刚接入时常只有少数点）
+  if (flows.length < 5) {
+    const latest = flows[flows.length - 1];
+    const ch = latest.change;
+    const score = ch > 1 ? 62 : ch < -1 ? 38 : 50;
+    const direction: Direction = score >= 60 ? 'bullish' : score <= 40 ? 'bearish' : 'neutral';
+    return {
+      score,
+      direction,
+      percentile: 50,
+      change5d: ch,
+      change20d: ch,
+      divergence: false,
+      divergenceLabel: '',
+      summary: `GLD 持仓 ${latest.tons.toFixed(1)} 吨`
+        + (ch ? `（Δ${ch > 0 ? '+' : ''}${ch.toFixed(2)}吨）` : '')
+        + ` · 样本仅 ${flows.length} 日，粗判`,
     };
   }
 
