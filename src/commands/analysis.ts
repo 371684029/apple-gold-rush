@@ -44,6 +44,12 @@ import { ensureInstitutionalFlows } from '../utils/ensure-flows.js';
 import { computeInstitutionalSignal } from '../indicators/flow-signal.js';
 import { formatQuantScoreConsole } from '../indicators/quant-score.js';
 import type { PatternMatch } from '../types/calibration.js';
+import {
+  evaluateDataQualityGate,
+  formatDataQualityGateConsole,
+  nonActionableAdvice,
+  type DataQualityGate,
+} from '../utils/data-quality-gate.js';
 
 export async function analysisCommand(options: {
   horizon: Horizon;
@@ -107,6 +113,20 @@ export async function analysisCommand(options: {
   const latestProxy = priceRepo.getRecent(1)[0]?.londonClose ?? null;
   const spotWarn = spotProxyDeviationWarning(marketData.london?.price?.value, latestProxy);
   if (spotWarn) priceWarnings.push(spotWarn);
+
+  const dataQualityGate = evaluateDataQualityGate({
+    marketData,
+    overallConfidence: validation.overallConfidence,
+    validations: validation.validations,
+    warnings: priceWarnings,
+    anchorGoldPrice: validation.anchorGoldPrice,
+  });
+  console.log(formatDataQualityGateConsole(dataQualityGate));
+  for (const b of dataQualityGate.banners) {
+    if (!priceWarnings.some(w => w.includes(b.trim().slice(0, 12)))) {
+      priceWarnings.push(b.trim());
+    }
+  }
 
   // Step 1.5: 加载历史数据 + 本地指标已在 TechnicalAgent 中处理
 
@@ -279,6 +299,10 @@ export async function analysisCommand(options: {
     overallConfidence: validation.overallConfidence,
     warnings: priceWarnings,
   };
+  // 红档：覆盖操作结论，禁止「依据本报告加减仓」
+  if (!dataQualityGate.actionable) {
+    applyNonActionableOverlay(report, dataQualityGate);
+  }
   console.log('  ✅ 编排完成');
 
   const judgeVerdict = buildJudgeVerdict(technical, fundamental, sentiment, rebuttal, scoreBreakdown);
@@ -325,7 +349,14 @@ export async function analysisCommand(options: {
   const manifestPath = saveRunManifest(manifest);
   console.log(`  📦 审计包已保存: ${manifestPath}`);
 
-  const reportExtras = { macroRegime, judgeVerdict, similarPatterns, scoreBreakdown, longTermOutlook };
+  const reportExtras = {
+    macroRegime,
+    judgeVerdict,
+    similarPatterns,
+    scoreBreakdown,
+    longTermOutlook,
+    dataQualityGate,
+  };
 
   // 输出报告
   if (options.json) {
@@ -352,7 +383,10 @@ export async function analysisCommand(options: {
     const docsDir = 'docs';
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
     const filename = `${docsDir}/goldrush-analysis-${new Date().toISOString().slice(0, 10)}.md`;
-    const mdContent = formatReportMarkdown(report, options.horizon, reportExtras);
+    const mdContent = formatReportMarkdown(report, options.horizon, {
+      ...reportExtras,
+      dataQualityGate,
+    });
     fs.writeFileSync(filename, mdContent, 'utf-8');
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
   }
@@ -457,6 +491,24 @@ async function runSmartAnalysis(
   return 0;
 }
 
+/** 红档：覆盖短中期操作文案 */
+function applyNonActionableOverlay(report: GoldAnalysisReport, gate: DataQualityGate): void {
+  const na = nonActionableAdvice();
+  if (report.overall?.shortTerm) {
+    report.overall.shortTerm.action = na.action;
+    report.overall.shortTerm.riskWarning = `${na.headline}；原因：${gate.reasons.join('；')}`;
+  }
+  if (report.overall?.midTerm) {
+    report.overall.midTerm.investAdvice = {
+      ...report.overall.midTerm.investAdvice,
+      dipInvest: 'pause',
+      positionAdjust: 'hold',
+      recommendedFund: report.overall.midTerm.investAdvice?.recommendedFund ?? 'N/A',
+    };
+    report.overall.midTerm.riskWarning = `${na.headline}；原因：${gate.reasons.join('；')}`;
+  }
+}
+
 function printReport(
   report: GoldAnalysisReport,
   horizon: Horizon,
@@ -466,11 +518,16 @@ function printReport(
     judgeVerdict?: import('../utils/judge-verdict.js').JudgeVerdict;
     similarPatterns?: PatternMatch[];
     longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
+    dataQualityGate?: DataQualityGate;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
 
   console.log(header('🎯 GoldRush 综合分析报告', formatNow()));
+
+  if (extras?.dataQualityGate) {
+    console.log('\n' + formatDataQualityGateConsole(extras.dataQualityGate));
+  }
 
   const bd = scoreBreakdown ?? buildScoreBreakdown(technical, fundamental, sentiment, rebuttal);
   console.log('\n' + formatScoreBreakdownConsole(bd, '  '));
@@ -499,7 +556,17 @@ function printReport(
   // 综合研判 + 人话建议
   const scoreDisplay = overall?.score ?? 'N/A';
   const directionDisplay = overall?.direction ?? 'neutral';
-  const advice = overall?.score ? scoreToAdvice(overall.score) : null;
+  const gate = extras?.dataQualityGate;
+  let advice = overall?.score != null ? scoreToAdvice(overall.score) : null;
+  if (gate && !gate.actionable) {
+    const na = nonActionableAdvice();
+    advice = {
+      label: '数据不可用',
+      emoji: '🔴',
+      headline: na.headline,
+      action: na.action,
+    };
+  }
   console.log(`\n  综合研判: ${directionMark(directionDisplay)} ${scoreDisplay}/100`);
   if (overall?.score) {
     console.log(`  ${scoreBar(overall.score)}`);
@@ -511,9 +578,15 @@ function printReport(
     const quantDir = overall.quantScore >= 58 ? 'bullish' : overall.quantScore <= 42 ? 'bearish' : 'neutral';
     console.log(`  🔢 量化评分: ${scoreBar(overall.quantScore)}`);
     console.log(`     量化=${overall.quantScore} ${directionMark(quantDir)} | LLM=${overall.score} | 偏差=${deltaStr}`);
+    if (Math.abs(delta) > 15) {
+      console.log(chalk.yellow('     ⚠️ 双分偏差>15：建议以量化分 + CFTC 主力为底，LLM 作叙事参考'));
+    }
   }
   if (advice) {
     console.log(`  💡 ${advice.emoji} ${advice.action}`);
+    if (gate && !gate.actionable) {
+      console.log(chalk.red(`  ⛔ ${advice.headline}`));
+    }
   }
 
   // 四维度一致性检查

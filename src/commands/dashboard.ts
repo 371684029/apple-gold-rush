@@ -87,6 +87,15 @@ export async function dashboardCommand(): Promise<void> {
   if (latestReport) {
     const advice = scoreToAdvice(latestReport.overallScore);
     console.log(`  📊 最新研判 (${latestReport.date})  ${latestReport.overallScore}/100  ${directionMark(latestReport.direction)}`);
+
+    // 双打分对比：LLM vs 量化（如果 quantScore 可用）
+    if (latestReport.quantScore != null) {
+      const delta = latestReport.overallScore - latestReport.quantScore;
+      const deltaStr = delta > 0 ? `LLM偏高 +${delta}` : delta < 0 ? `LLM偏低 ${delta}` : '一致';
+      const quantDir = latestReport.quantScore >= 58 ? 'bullish' : latestReport.quantScore <= 42 ? 'bearish' : 'neutral';
+      console.log(`  🔢 量化 ${latestReport.quantScore}/100 ${directionMark(quantDir)} | ${deltaStr}`);
+    }
+
     console.log(`  💡 ${advice.emoji} ${advice.action}`);
   } else {
     console.log(chalk.gray('  📊 暂无分析报告，运行 goldrush analysis 生成第一份'));

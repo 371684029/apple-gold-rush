@@ -37,13 +37,18 @@ export async function flowCommand(options: FlowOptions = {}): Promise<void> {
   // 自动补齐最新数据（非 --init 模式下）
   console.log(chalk.gray('  📡 检查主力数据更新...'));
   const ensured = await ensureInstitutionalFlows(repo);
-  if (ensured.cftc.fetched || ensured.gld.fetched) {
+  if (ensured.cftc.fetched || ensured.gld.fetched || ensured.pboc.fetched) {
     const parts: string[] = [];
     if (ensured.cftc.fetched) parts.push(`CFTC +${ensured.cftc.records}条`);
     if (ensured.gld.fetched) parts.push(`GLD +${ensured.gld.records}条`);
+    if (ensured.pboc.fetched) parts.push(`PBOC +${ensured.pboc.records}条`);
     console.log(chalk.green(`  ✅ 已更新: ${parts.join(', ')}`));
+    if (ensured.gld.error) console.log(chalk.yellow(`  ⚠️ GLD: ${ensured.gld.error}`));
+    if (ensured.pboc.error) console.log(chalk.yellow(`  ⚠️ PBOC: ${ensured.pboc.error}`));
   } else {
     console.log(chalk.gray('  ✅ 数据已是最新'));
+    if (ensured.gld.error) console.log(chalk.yellow(`  ⚠️ GLD: ${ensured.gld.error}`));
+    if (ensured.pboc.error) console.log(chalk.yellow(`  ⚠️ PBOC: ${ensured.pboc.error}`));
   }
 
   // 计算主力信号
