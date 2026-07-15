@@ -1,7 +1,7 @@
 # GoldRush 数据质量：事故复盘与防线
 
-> 更新：2026-07-15  
-> 关联：`IMPROVEMENTS.md` 第六轮、`AGENTS.md`「数据质量硬规则」、`CORRECTNESS-SPEC.md`
+> 更新：2026-07-15（含门禁、锚定、东财 GLD/PBOC、Web 色点）  
+> 关联：`IMPROVEMENTS.md` 第六～九轮、`AGENTS.md`、`docs/DUAL-SCORE.md`、`CORRECTNESS-SPEC.md`
 
 ---
 
@@ -171,17 +171,28 @@ console.log('lbma', h.length, h.slice(-2));
 直连锚定（gold-api/新浪/…）→ 搜索+LLM 补全 → 再 merge 锚定
 ```
 
+### 6.4 Web 展示（`server.cjs`）
+
+| 位置 | 行为 |
+|------|------|
+| 文章首屏 | `dq-banner` 红/黄/绿条 + 置信度 |
+| 速读卡 / 预测仪表盘 | 门禁标签；红档覆盖「定投建议」文案 |
+| 首页列表 / 英雄卡 | 色点 + 置信度；红档显示「勿据此加减仓」 |
+| 旧日报无门禁小节 | 按 conf 推断：&lt;35 红，≥70 绿，其余黄 |
+
+解析函数：`extractDataQualityGate` / `renderQualityBanner`。
+
 ---
 
 ## 7. 已知缺口（未关闭）
 
 | 项 | 状态 | 建议 |
 |----|------|------|
-| GLD 官方持仓吨数 | 现网常空 | 需稳定份额源或人工 CSV 导入 |
-| PBOC 月度吨数 | 解析不稳 | 接 SAFE/WGC 结构化源或月度手工录入 |
+| GLD 持仓吨数 | ✅ 东财新闻解析 SPDR 吨数（现网） | 样本少时粗判；可继续扩历史 |
+| PBOC 月度吨数 | ✅ 东财搜索「中国央行黄金储备」 | 月更，连续增持月数可再校准 |
 | FRED 利率序列 | 常超时 | 国内镜像或新浪/东方财富利率接口 |
 | 搜索原文存档 | 未做 | OPTIMIZATION P0「搜索源存档」 |
-| 当日错误 MD 报告 | 仍留在 docs/ | 数据修复后应用 `analysis --md` 覆盖 |
+| 当日错误 MD 报告 | 旧稿仍在 docs/ | 跑完 `analysis --md` 覆盖 |
 
 ---
 

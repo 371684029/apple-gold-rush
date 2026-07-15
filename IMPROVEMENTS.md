@@ -218,4 +218,54 @@ UPDATE gold_prices SET london_close=NULL WHERE london_close=0;
 - 新增 `docs/DATA-QUALITY.md`  
 - 更新 `README.md` 数据源表、`AGENTS.md` 硬规则与出站表、`docs/OPTIMIZATION.md` 状态  
 
+---
+
+## 十一、第七轮（置信度与门禁：取消 conf&lt;55 硬拦 + 先锚定）
+
+| 项 | 落地 |
+|----|------|
+| A 级单源 | 55 → **72**；gold-api/新浪/Yahoo/FRED/LBMA 标 A |
+| 加权置信度 | 伦敦金 **50%** + 其余平均 50% |
+| LLM 权重 | 锚定一致时 **0.2**，否则 0.4 |
+| 门禁 | 红：无金价 / 锚定偏差&gt;3% / conf&lt;**35**；黄：降级可用；绿：conf≥70 且锚定贴合 |
+| 采集 | **先直连锚定，后搜索+LLM**；无金价 fail-fast |
+| 红档 | 覆盖短中期操作结论 + MD/CLI 顶栏 |
+| 测试 | `data-quality-gate` + source-rank；相关 **26** 通过 |
+
+---
+
+## 十二、第八轮（GLD/PBOC 东财源 + Web 门禁色点）
+
+| 项 | 落地 |
+|----|------|
+| GLD | 东财「SPDR黄金持仓」解析吨数 + 多日回填；少样本粗判 |
+| PBOC | 东财「中国央行黄金储备」解析吨/万盎司/环比 |
+| Web | 列表红黄绿点、文章门禁条、红档操作关闭文案 |
+| 共享 | `eastmoney-search.ts` |
+
+---
+
+## 十三、第九轮（健全双打分，非抬权重）
+
+| 项 | 落地 |
+|----|------|
+| `dual-score.ts` | 冲突规则：\|Δ\|&gt;15 / 弱一致 → **操作弃权** |
+| `orchestrator` | 写入 `quantScore` + `quantFactors` |
+| `calibrate` | LLM/量化分桶 + 方向命中 + 冲突日；排除红档/无效价 |
+| `analysis` / `report-md` | 双分展示、因子表、弃权覆盖策略 |
+| `server.cjs` | 双打分横幅 |
+| 文档 | `docs/DUAL-SCORE.md` |
+| 原则 | **不**在冲突时自动提高量化总权重；谁准看校准分轨 |
+
+---
+
+## 文档索引（维护约定）
+
+| 变更类型 | 应更新的文档 |
+|----------|----------------|
+| 数据/门禁/锚定 | `docs/DATA-QUALITY.md`、`AGENTS.md`、必要时 `README` |
+| 双打分/校准/因子 | `docs/DUAL-SCORE.md`、`AGENTS.md` 双打分节、`README` 双打分节 |
+| 主力 flow | `docs/FLOW-PLAN.md`、`README` 数据源表 |
+| 一轮修复归档 | `IMPROVEMENTS.md` 追加轮次 |
+| 路线图状态 | `docs/OPTIMIZATION.md` |
 

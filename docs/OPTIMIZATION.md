@@ -1,9 +1,12 @@
 # GoldRush 优化路线图
 
 > 从五大维度系统评估 GoldRush 的改进空间  
-> 创建：2026-07-13 | 版本：v1.2（2026-07-15 同步数据质量事故与锚定瀑布）
+> 创建：2026-07-13 | 版本：v1.3（2026-07-15：数据质量 + 双打分健全 + 东财主力）
 
-**相关**：`docs/DATA-QUALITY.md`（零价/MA20 事故与防线）、`IMPROVEMENTS.md` 第六轮。
+**相关**：  
+- `docs/DATA-QUALITY.md` — 零价/门禁/锚定  
+- `docs/DUAL-SCORE.md` — 双打分冲突与分轨校准  
+- `IMPROVEMENTS.md` 第六～九轮
 
 ---
 
@@ -397,14 +400,16 @@ analysis 查看完整报告 | flow 查看主力详情
   ├── ✅ 评分区间 + 校准可见 + 分数→操作映射
   ├── ✅ 数值 0 / MA20 假信号防线（见 DATA-QUALITY.md）
   ├── ✅ 金价多源锚定（Yahoo→gold-api→新浪→LBMA）
+  ├── ✅ 数据门禁红黄绿 + Web 色点
+  ├── ✅ 双打分冲突弃权 + 分轨 calibrate（见 DUAL-SCORE.md）
+  ├── ✅ GLD/PBOC 东财新闻源（现网）
   ├── ⚠️ COMEX 成交量 / 实际利率展示（部分有字段，展示仍可加强）
   └── ⚠️ 时效标注（有 timestamp，UI 仍可强化）
 
 第二轮（P1）— 优先：
   ├── 搜索源存档（审计 LLM 提取）
-  ├── GLD 稳定持仓源 / PBOC 结构化源
+  ├── quant_score 样本积累后做因子回测降权
   ├── 多源一致性量化展示
-  ├── 四维度一致性（已有部分）
   ├── 金银比/上海金溢价
   └── 分级输出 (analysis vs analysis --full)
 

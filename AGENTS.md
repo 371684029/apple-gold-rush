@@ -41,6 +41,7 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 4. **先锚定后搜索**：`collectMarketData` 先直连 gold-api/新浪，再 Tavily+LLM 补全；锚定失败且无金价则 fail-fast。
 5. **置信度**：A 级单源 **72**；伦敦金字段权重 50%；锚定一致时 LLM 权重 0.2。
 6. **门禁**（`data-quality-gate.ts`）：**勿用 conf&lt;55 硬拦**。红档=无金价 / 锚定偏差&gt;3% / conf&lt;35 → 关闭操作结论；黄档可出报告；绿档 conf≥70 且锚定贴合。
+7. **双打分**（`dual-score.ts`）：LLM 分与量化分**始终并排**；`|Δ|&gt;15` 或弱一致性 → **操作弃权（维持定投）**，不抬某一侧权重；`calibrate` 分轨统计谁更准；量化因子 `event_heat` 默认 0，无效因子可在 `DEFAULT_WEIGHTS` 置 0。
 
 ### 出站网络现状（生产机实测，会变）
 | 源 | 状态 | 用途 |
@@ -48,9 +49,10 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 | cftc.gov | 通 | COT |
 | gold-api.com / 新浪 hq | 通 | 现货金锚定 |
 | prices.lbma.org.uk | 通 | 历史金价 |
+| 东财 search-api | 通 | **GLD 吨数 / PBOC 储备** 新闻解析 |
 | Yahoo query1 | 常超时 | 有回落，勿假设必通 |
 | FRED | 常超时 | 10Y/TIPS/宽美元可能空 |
-| SPDR CSV / Yahoo GLD 份额 | 常失败 | flow 的 ETF 维可能中性 50 |
+| SPDR CSV / Yahoo GLD 份额 | 常失败 | 已用东财持仓新闻替代 |
 
 改数据源时：优先在 `src/data/live-anchors.ts` 加瀑布源，并保持「无数据 → null/中性，不编造」。
 
@@ -82,7 +84,7 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 | MACD 动能 | `macd` | 10% | 同上 | histogram/price 归一化 |
 | 布林带 | `bollinger` | 5% | 同上 | %B 反转（低轨→偏多） |
 | 估值水位 | `valuation` | 8% | 同上 | 历史百分位反转 |
-| 主力动向 | `flow` | 15% | MySQL→DB 直读 | CFTC+ETF+央行综合分 |
+| 主力动向 | `flow` | 15% | SQLite `institutional_flows` | CFTC+GLD+央行综合分 |
 | 美元指数 | `dxy` | 12% | `gold_prices.dollar_index` | DXY 偏离 MA20，反向 |
 | 名义利率 | `us10y` | 8% | `gold_prices.us10y_yield` | 10Y 偏离 MA20，反向 |
 | **实际利率** | `tips` | 10% | `gold_prices.tips_yield` | **黄金最重要单一驱动**，反向 |
@@ -96,20 +98,22 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 
 **因子函数签名必须不可变**：所有因子函数接受纯数据数组，返回 `QuantFactorDetail`，不访问 DB/网络/LLM。
 
-### 展示位置
-- **终端**：`formatQuantScoreConsole()` 输出因子明细表
-- **Markdown**：`report-md.ts` 在综合研判段显示对比行
-- **Web**：`server.cjs` 的 `extractQuantScore()` 从 MD 解析 → 仪表盘/快速阅读卡展示
-- **校准**：`calibrate.ts` 同时校准 LLM 分和量化分，输出对比表
+### 展示与冲突
+- **终端**：双分并排 + `formatQuantScoreConsole` 因子表 + `evaluateDualScore` 策略行  
+- **Markdown**：`## ⚖️ 双打分机制` + 因子表 + 弃权说明（`report-md.ts`）  
+- **Web**：`server.cjs` 双分横幅 / 冲突时「维持定投」  
+- **校准**：`calibrate` LLM 分桶 + 量化分桶 + 方向命中 + 冲突日统计  
+- 完整说明：**`docs/DUAL-SCORE.md`**
 
 ### DB schema
 ```sql
-analysis_reports.quant_score REAL   -- 量化评分（可为 NULL）
+analysis_reports.quant_score REAL   -- 量化评分（可为 NULL；新 analysis 写入）
+-- report_json 内 overall.quantFactors 为因子明细（可选）
 ```
 迁移是幂等的（`ALTER TABLE ADD COLUMN`，列已存在则忽略）。
 
 ### 数据质量
 - **`saveSnapshot` 过滤**：`source: 'N/A'`、值为 0 的字段不入库（`data-collector.ts` + `GoldPricesRepo.upsert` sanitize）。
 - **`scenario_features` 迁移**：`cftc_percentile`、`etf_flow_5d`、`flow_score` 三列有幂等迁移（`db/index.ts`），旧 DB 自动补齐。
-- **`institutional_flows`**：`goldrush flow --init` 回填 CFTC；GLD 依赖 Yahoo 份额（现网常失败则保持 null，信号中性）；PBOC 走 `pboc-grabber` 启发式，失败不编造。
-- **flow 因子 15%**：无 GLD/PBOC 时对应子分≈50 中性，综合分仍由 CFTC 主导。
+- **`institutional_flows`**：`flow --init` 回填 CFTC；**GLD 吨数 / PBOC 储备** 优先 **东财搜索新闻解析**（`etf-grabber` / `pboc-grabber`）；失败不编造。
+- **flow 因子 15%**：CFTC+GLD+央行综合；单维缺失时该维中性，不编造持仓。

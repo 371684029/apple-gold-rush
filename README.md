@@ -231,37 +231,46 @@ Orchestrator (编排层)
 | 策略核心 | 入场点位、止盈止损 | 定投节奏、加减仓 |
 | 风控方式 | 固定止损 3-5% | 估值止盈、仓位管理 |
 
-### 双打分制（LLM + 量化并行）
+### 双打分制（LLM + 量化并行，健全版）
 
-`analysis` 命令同时运行两套独立评分系统：
+`analysis` 同时跑**两套独立分数**，始终并排展示，**不合成一个黑箱分**。详见 [docs/DUAL-SCORE.md](./docs/DUAL-SCORE.md)。
 
-- **LLM 评分**：四维度分析 → 反驳修正 → 校准偏移（依赖 opencode 服务器）
-- **量化评分**：纯本地计算，11 类因子加权求和，零 LLM，100% 可复现
+| 轨道 | 路径 | 特点 |
+|------|------|------|
+| **LLM 分** | 四维 → 反驳 → 校准偏移 → `overall.score` | 可读叙事，有随机性 |
+| **量化分** | 本地因子加权 → `overall.quantScore` + 因子明细 | 零 LLM，可复现 |
 
-终端同时显示两套评分对比，`calibrate` 命令分开展示各自的准确率：
+**冲突规则**（`src/utils/dual-score.ts`）：
 
-```
-综合研判: 📈 67/100
-████████████████░░░░
-🔢 量化评分: ████████████░░░░░░ 63/100
-   量化=63 📈 | LLM=67 | 偏差=LLM偏高 +4
-```
+| 条件 | 操作 |
+|------|------|
+| \|LLM−量化\| ≤ 8 且同向 | 可参考综合结论 |
+| 微偏同向 | 叙事看 LLM，结构可参考量化 |
+| **\|Δ\| > 15** 或方向相反或四维弱一致 | **操作弃权：维持定投**（两套分仍展示） |
+| 数据门禁红档 | 优先关闭操作（与双分无关） |
 
-量化因子权重可在 `src/indicators/quant-score.ts` 的 `DEFAULT_WEIGHTS` 中调整。
-
-### 回测校准闭环
-
-每次分析自动存档到 SQLite，`goldrush calibrate` 对比历史研判 vs 实际走势：
+**不**在冲突时自动抬高某一侧权重；谁更准看 `calibrate` 分轨统计。
 
 ```
-评分区间  样本  实际涨概率  平均涨幅  偏差
-60-70     12    58%       +0.3%    偏乐观8%
-70-80     18    67%       +0.8%    校准良好
-80-90      8    75%       +1.2%    偏保守
-90-100     2    50%      -0.1%    严重偏乐观！
+综合研判(LLM): 📈 67/100
+🔢 量化评分: 63/100 | 偏差=LLM偏高 +4 | 策略=both
+  （因子表：trend/rsi/macd/flow/dxy/tips/…）
 ```
 
-校准数据自动注入综合编排 prompt，让评分有统计意义。
+量化因子权重：`src/indicators/quant-score.ts` 的 `DEFAULT_WEIGHTS`（**总和=1.0**；`event_heat` 默认 **0**；无效因子可置 0 后归一）。
+
+### 回测校准闭环（分轨）
+
+```bash
+node dist/index.js calibrate --days 90 --detail
+```
+
+- **LLM 分桶** + **量化分桶**（独立）
+- 方向命中率（>55 预测涨 / <45 预测跌）
+- 冲突日若跟 LLM / 跟量化各自命中次数
+- **排除**无效金价、报告数据红档样本
+
+校准上下文仍会注入综合编排 prompt（LLM 分区间历史涨概率）。
 
 ---
 
@@ -276,10 +285,12 @@ node server.cjs
 
 **Web 特性**：
 - 🏠 首页：最新研判 + 历史报告列表 + 搜索/排序
-- 📊 **30秒速读卡片**：评分 + 操作建议 + 维度标签，一眼看懂
-- 📈 **预测仪表盘**：大号评分 + 校准置信 + 三情景概率
-- 📁 **智能折叠**：默认只展开策略+情景，其余分析折叠
-- 🏦 **主力仪表盘**：CFTC/ETF/央行 评分条 + 背离警告
+- 🟢🟡🔴 **数据质量点**：列表/英雄卡置信度色点（旧报按 conf 推断）
+- 📊 **30秒速读卡片**：评分 + 操作建议 + 门禁标签
+- 📈 **预测仪表盘**：大号评分 + 校准 + 三情景 + **双打分横幅**
+- ⚖️ 冲突日展示「操作弃权 · 维持定投」
+- 📁 **智能折叠**：默认只展开策略+情景
+- 🏦 **主力仪表盘**：CFTC/ETF/央行 评分条
 
 ### 每日定时分析
 
@@ -356,8 +367,9 @@ goldRush/
 │   │   ├── yahoo-live.ts     # Yahoo 实时价 + 锚定回落
 │   │   ├── yahoo-gold-history.ts # Yahoo 日线 + LBMA 历史回落
 │   │   ├── cftc-grabber.ts   # CFTC COT 报告采集
-│   │   ├── etf-grabber.ts    # GLD ETF 持仓（Yahoo 双通道）
-│   │   ├── pboc-grabber.ts   # 央行储备启发式解析
+│   │   ├── etf-grabber.ts    # GLD 吨数（东财新闻优先）
+│   │   ├── pboc-grabber.ts   # PBOC 储备（东财搜索）
+│   │   ├── eastmoney-search.ts # 东财 JSONP 搜索
 │   │   ├── search-router.ts  # Tavily 搜索封装及路由
 │   │   └── tavily-client.ts  # Tavily API 客户端
 │   ├── db/
@@ -430,24 +442,26 @@ npm test
 
 | 文档 | 内容 |
 |------|------|
-| [FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划 |
-| [OPTIMIZATION.md](./docs/OPTIMIZATION.md) | **优化路线图**（真实性、覆盖度、实时性、可靠性、交互） |
-| [DATA-QUALITY.md](./docs/DATA-QUALITY.md) | **数据质量事故与防线**（零价/MA20/锚定瀑布） |
-| [PLAN.md](./PLAN.md) | 完整项目规划 |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构决策记录 |
-| [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率改进规范 |
-| [METHODOLOGY-DEEP-DIVE.md](./METHODOLOGY-DEEP-DIVE.md) | 金融 AI 方法论深度分析 |
+| [docs/DUAL-SCORE.md](./docs/DUAL-SCORE.md) | **双打分机制**（冲突规则、分轨校准、因子） |
+| [docs/DATA-QUALITY.md](./docs/DATA-QUALITY.md) | **数据质量**（零价/门禁/锚定/Web 色点） |
+| [docs/FLOW-PLAN.md](./docs/FLOW-PLAN.md) | 主力动向监测设计规划 |
+| [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) | 优化路线图（五维度 + 完成状态） |
+| [AGENTS.md](./AGENTS.md) | 开发/运维约定（硬规则、出站源） |
 | [IMPROVEMENTS.md](./IMPROVEMENTS.md) | 多轮体检与修复存档 |
-| [AGENTS.md](./AGENTS.md) | 开发/运维约定（给 Agent 与人） |
+| [CORRECTNESS-SPEC.md](./CORRECTNESS-SPEC.md) | 正确率与风险暴露规范 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 架构决策记录 |
+| [PLAN.md](./PLAN.md) | 完整项目规划（偏早期） |
+| [METHODOLOGY-DEEP-DIVE.md](./METHODOLOGY-DEEP-DIVE.md) | 金融 AI 方法论 |
+| [PARADIGMS.md](./PARADIGMS.md) | 金融 Agent 范式参考 |
 
 ---
 
 ## 注意事项
 
 - 本工具仅供投资研究参考，**不构成投资建议**
-- LLM 分析存在固有局限，请结合自身判断做出决策
-- 数据依赖搜索结果及外部 API，可能存在延迟或偏差；**报告中的「数据置信度」与校验警告需优先阅读**
-- 若技术面/基本面出现「价格为 0 / 数据真空」，多为采集失败：检查 opencode、Tavily、出站网络，或看 `docs/DATA-QUALITY.md`
-- 建议积累 20 天以上**有效**金价后再使用 `calibrate` 命令（库内 `london_close=0` 已按缺失处理）
+- LLM 分析存在固有局限；**优先看数据质量门禁与双打分是否冲突**
+- 报告中的「数据置信度」、红/黄/绿门禁、双分偏差需优先阅读
+- 若出现「价格为 0 / 数据真空」：见 `docs/DATA-QUALITY.md`；检查 opencode、Tavily、出站
+- `calibrate` 建议积累 20 天以上**有效**金价；坏样本/红档会自动排除
 - Tavily API 免费额度约 1000 次/月
-- 主力数据：CFTC 首次可 `goldrush flow --init`；GLD/PBOC 受出站源限制时评分会回落中性 50，不编造持仓
+- 主力：`flow --init` 回填 CFTC；**GLD/PBOC 优先东财新闻解析**（现网可用）；失败不编造
