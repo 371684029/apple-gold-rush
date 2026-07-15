@@ -1,7 +1,9 @@
 // Yahoo Finance 历史金价 — COMEX 黄金期货 GC=F 日线收盘（无需 API Key）
+// Yahoo 超时/阻断时回落 LBMA 下午定盘价
 
 import { addCalendarDays, todayDate } from '../utils/time.js';
 import type { HistoryPriceRow } from '../utils/history-backfill.js';
+import { fetchLbmaGoldHistory } from './live-anchors.js';
 
 const USER_AGENT = 'GoldRush/0.1 (gold research CLI)';
 const SYMBOL = 'GC=F';
@@ -53,12 +55,37 @@ export async function fetchYahooGoldDailyCloses(
   calendarDays: number,
   asOf: string = todayDate(),
 ): Promise<HistoryPriceRow[]> {
+  try {
+    const rows = await fetchYahooChartCloses(calendarDays, asOf);
+    if (rows.length > 0) return rows;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[yahoo-gold-history] Yahoo 失败，回落 LBMA: ${msg}`);
+  }
+
+  // LBMA 下午定盘价（服务器实测可达）
+  const lbma = await fetchLbmaGoldHistory(calendarDays + 10);
+  const from = addCalendarDays(asOf, -(calendarDays - 1));
+  return lbma
+    .filter(r => r.date >= from && r.date <= asOf)
+    .map(r => ({
+      date: r.date,
+      londonClose: r.close,
+      shanghaiClose: null,
+      volume: null,
+    }));
+}
+
+async function fetchYahooChartCloses(
+  calendarDays: number,
+  asOf: string,
+): Promise<HistoryPriceRow[]> {
   const range = rangeForDays(calendarDays);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(SYMBOL)}?interval=1d&range=${range}`;
 
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!res.ok) {
@@ -75,8 +102,6 @@ export async function fetchYahooGoldDailyCloses(
   const timestamps = result?.timestamp ?? [];
   const quote = result?.indicators?.quote?.[0];
   const closes = quote?.close ?? [];
-  const highs = quote?.high ?? [];
-  const lows = quote?.low ?? [];
   const volumes = quote?.volume ?? [];
 
   const from = addCalendarDays(asOf, -(calendarDays - 1));
