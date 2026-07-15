@@ -30,16 +30,19 @@ function extractScore(md) {
   return { score, direction };
 }
 
-/** 提取量化评分对比行：🔢 量化评分: 63/100 | LLM: 67/100 | 偏差: +4 */
+/** 提取量化评分对比行：- 🔢 量化评分: **63/100** | LLM: 67/100 | ⚠️ LLM偏高 +4 */
 function extractQuantScore(md) {
-  const m = md.match(/量化评分[：:]\s*(\d+)\/100\s*\|\s*LLM[：:]\s*(\d+)\/100\s*\|\s*偏差[：:]\s*([+-]?\d+)/);
-  if (!m) {
-    // fallback: match just the quant score alone
-    const alt = md.match(/🔢\s*量化评分[：:]\s*(\d+)\/100/);
-    if (!alt) return null;
+  // 主格式：匹配量化分 + LLM 分（两栏均可能有 ** 加粗），diff 由调用方自行计算
+  const m = md.match(/量化评分[：:]\s*\*{0,2}(\d+)\/100\*{0,2}\s*\|\s*LLM[：:]\s*\*{0,2}(\d+)\/100/);
+  if (m) {
+    return { quantScore: parseInt(m[1], 10), llmScore: parseInt(m[2], 10), diff: null };
+  }
+  // fallback: 只有量化评分单独一行的格式（如仅展示 🔢 量化评分: 63 时）
+  const alt = md.match(/🔢\s*量化评分[：:]\s*\*{0,2}(\d+)/);
+  if (alt) {
     return { quantScore: parseInt(alt[1], 10), llmScore: null, diff: null };
   }
-  return { quantScore: parseInt(m[1], 10), llmScore: parseInt(m[2], 10), diff: parseInt(m[3], 10) };
+  return null;
 }
 
 /** 提取四维度评分（仅匹配表格行，避免正文中误匹配） */
@@ -135,6 +138,116 @@ function extractDataConfidence(md) {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/**
+ * 数据质量门禁（与 CLI data-quality-gate 对齐）
+ * 优先解析 MD 中的「数据质量门禁」小节；旧报告按置信度推断。
+ * 不再用 conf<55 一刀切。
+ */
+function extractDataQualityGate(md) {
+  const confidence = extractDataConfidence(md);
+  let tier = null;
+  let actionable = true;
+  const notes = [];
+
+  const secMatch = md.match(/##\s*[📋\s]*数据质量门禁([\s\S]*?)(?=\n##\s|$)/);
+  if (secMatch) {
+    const body = secMatch[1];
+    if (/操作结论已关闭|请勿据此|可否依据本报告操作[：:].{0,20}否|分档[：:].{0,20}不可用/.test(body)) {
+      tier = 'red';
+      actionable = false;
+    } else if (/分档[：:].{0,30}高可信|高可信\s*✅/.test(body)) {
+      tier = 'green';
+      actionable = true;
+    } else if (/降级可用|分档[：:].{0,30}降级/.test(body)) {
+      tier = 'yellow';
+      actionable = true;
+    }
+    for (const qm of body.matchAll(/^>\s*(.+)$/gm)) {
+      notes.push(qm[1].trim());
+    }
+  }
+
+  // 正文标记
+  if (!tier && (/操作结论已关闭|数据不合格：本报告操作建议/.test(md))) {
+    tier = 'red';
+    actionable = false;
+  }
+
+  // 旧报告回退：硬拦 conf<35；绿 ≥70；其余黄
+  if (!tier) {
+    if (confidence != null && confidence < 35) {
+      tier = 'red';
+      actionable = false;
+      notes.push(`综合置信度 ${confidence}% < 35%`);
+    } else if (confidence != null && confidence >= 70) {
+      tier = 'green';
+      actionable = true;
+    } else {
+      tier = 'yellow';
+      actionable = true;
+      if (confidence != null) notes.push(`综合置信度 ${confidence}%（降级可用）`);
+      else notes.push('未写入置信度，按降级可用展示');
+    }
+  }
+
+  return {
+    tier,
+    actionable,
+    confidence,
+    notes,
+    label: tier === 'green' ? '高可信' : tier === 'yellow' ? '降级可用' : '不可用',
+    emoji: tier === 'green' ? '🟢' : tier === 'yellow' ? '🟡' : '🔴',
+  };
+}
+
+/** 红档操作建议（Web） */
+function nonActionableAdviceWeb() {
+  return {
+    label: '数据不可用',
+    headline: '数据质量不足，暂停依据本报告操作',
+    action: '维持既有定投纪律或观望；修复数据后重新 analysis',
+    color: '#94a3b8',
+    bg: '#33415544',
+    emoji: '🔴',
+  };
+}
+
+/** 按门禁覆盖 advice */
+function resolveAdvice(scoreInfo, gate) {
+  if (gate && !gate.actionable) return nonActionableAdviceWeb();
+  if (!scoreInfo) return null;
+  return plainAdvice(scoreInfo.score, scoreInfo.direction);
+}
+
+/** 门禁顶栏 HTML */
+function renderQualityBanner(gate) {
+  if (!gate) return '';
+  const cls = gate.tier === 'green' ? 'dq-green' : gate.tier === 'yellow' ? 'dq-yellow' : 'dq-red';
+  const conf = gate.confidence != null ? `${gate.confidence}%` : '—';
+  const extra = gate.notes.length
+    ? `<div class="dq-notes">${gate.notes.slice(0, 4).map(n => `<div>· ${esc(n)}</div>`).join('')}</div>`
+    : '';
+  const actionLine = gate.actionable
+    ? (gate.tier === 'green' ? '可参考本报告操作建议（仍须结合自身判断）' : '可阅读分析，建议结合量化分与主力数据')
+    : '⛔ 请勿依据本报告加减仓';
+  return `<div class="dq-banner ${cls}" role="status">
+    <div class="dq-main">
+      <span class="dq-emoji">${gate.emoji}</span>
+      <span class="dq-title">数据质量 · ${gate.label}</span>
+      <span class="dq-conf">置信度 ${esc(conf)}</span>
+    </div>
+    <div class="dq-action">${esc(actionLine)}</div>
+    ${extra}
+  </div>`;
+}
+
+/** 列表用小圆点 */
+function qualityDot(gate) {
+  if (!gate) return '';
+  const title = `${gate.label} · 置信度 ${gate.confidence != null ? gate.confidence + '%' : '—'}`;
+  return `<span class="dq-dot dq-dot-${gate.tier}" title="${esc(title)}"></span>`;
+}
+
 /** 提取校准参考 */
 function extractCalibration(md) {
   const m = md.match(/校准参考[：:]\s*([^\n]+)/);
@@ -227,7 +340,7 @@ function plainAdvice(score, direction) {
 
 /** 30秒快速阅读卡片 — 首屏决策三件套 */
 function renderQuickRead(meta) {
-  const { scoreInfo, advice, dims, calibration, quantInfo } = meta;
+  const { scoreInfo, advice, dims, calibration, quantInfo, qualityGate } = meta;
   if (!scoreInfo) return '';
 
   const dimLabels = dims && dims.length
@@ -246,16 +359,22 @@ function renderQuickRead(meta) {
     ? `<span class="qr-quant">🔢 量化 ${quantInfo.quantScore}</span>`
     : '';
 
-  return `<div class="quick-read-card" style="border-left-color:${advice.color}">
+  const gateBadge = qualityGate
+    ? `<span class="qr-dq qr-dq-${qualityGate.tier}">${qualityGate.emoji} ${qualityGate.label}</span>`
+    : '';
+
+  return `<div class="quick-read-card ${qualityGate && !qualityGate.actionable ? 'qr-blocked' : ''}" style="border-left-color:${advice.color}">
     <div class="qr-left">
       <div class="qr-score">${scoreInfo.score}<span class="qr-total">/100</span></div>
       ${quantBadge}
+      ${gateBadge}
       <div class="qr-dir">${advice.emoji} ${advice.label}</div>
     </div>
     <div class="qr-body">
       <div class="qr-action">💡 ${esc(advice.action)}</div>
       ${dimLabels ? `<div class="qr-why">${esc(dimLabels)}</div>` : ''}
       ${warnText ? `<div class="qr-warn">${esc(warnText)}</div>` : ''}
+      ${qualityGate && !qualityGate.actionable ? '<div class="qr-warn">⛔ 数据门禁：操作结论已关闭</div>' : ''}
     </div>
   </div>`;
 }
@@ -358,12 +477,15 @@ function renderSampleWarn(calibration) {
 
 /** 预测仪表盘（文章页顶部）— 首屏只留决策三件套，信任条/短期 tip 可折叠 */
 function renderPredictionDashboard(meta) {
-  const { scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo } = meta;
+  const { scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate } = meta;
   if (!scoreInfo) return '';
 
   const score = scoreInfo.score;
   const confPct = confidence != null ? confidence : '—';
-  const confClass = confidence >= 70 ? 'good' : confidence >= 50 ? 'mid' : 'low';
+  // 与门禁对齐：绿≥70 / 黄 / 红<35 或 red 档
+  let confClass = 'mid';
+  if (qualityGate?.tier === 'green' || (confidence != null && confidence >= 70)) confClass = 'good';
+  if (qualityGate?.tier === 'red' || (confidence != null && confidence < 35)) confClass = 'low';
 
   // Calibration badge: show stats directly
   const calibParts = [];
@@ -376,10 +498,11 @@ function renderPredictionDashboard(meta) {
   // Macro inside calibration area if present
   const macroLine = macro ? `<div class="pred-macro-inline">🌐 ${esc(macro.label)}</div>` : '';
 
-  // Action box — most prominent after score
+  // Action box — 红档灰化并改文案
+  const actionLabel = qualityGate && !qualityGate.actionable ? '⛔ 操作结论已关闭' : '💡 定投建议';
   const actionBoxHtml = `
-    <div class="pred-action-box" style="background:${advice.bg};border-color:${advice.color}">
-      <div class="pred-action-label">💡 定投建议</div>
+    <div class="pred-action-box ${qualityGate && !qualityGate.actionable ? 'pred-action-blocked' : ''}" style="background:${advice.bg};border-color:${advice.color}">
+      <div class="pred-action-label">${actionLabel}</div>
       <div class="pred-action-text">${esc(advice.action)}</div>
     </div>`;
 
@@ -412,16 +535,24 @@ function renderPredictionDashboard(meta) {
     else if (d > 0) { label = `LLM 偏高 +${absD}`; color = '#f59e0b'; }
     else if (d < 0) { label = `LLM 偏低 -${absD}`; color = '#f59e0b'; }
     else { label = '一致'; color = '#94a3b8'; }
+    const bigGap = absD > 15
+      ? `<div class="pred-quant-hint">偏差&gt;15：建议以量化分 + CFTC 为底</div>`
+      : '';
     return `<div class="pred-quant-bar">
       <span class="pred-quant-label">🔢 量化</span>
       <span class="pred-quant-value">${q}</span>
       <span class="pred-quant-diff" style="color:${color}">${label}</span>
-    </div>`;
+    </div>${bigGap}`;
   })() : '';
 
+  const gatePill = qualityGate
+    ? `<div class="pred-pill conf-${qualityGate.tier === 'green' ? 'good' : qualityGate.tier === 'red' ? 'low' : 'mid'}">${qualityGate.emoji} ${qualityGate.label}</div>`
+    : '';
+
   return `<section class="pred-dashboard" aria-label="预测结论">
+    ${renderQualityBanner(qualityGate)}
     ${renderSampleWarn(calibration)}
-    <div class="pred-hero" style="--pred-color:${advice.color}">
+    <div class="pred-hero ${qualityGate && !qualityGate.actionable ? 'pred-hero-blocked' : ''}" style="--pred-color:${advice.color}">
       <div class="pred-score-col">
         <div class="pred-score-num">${score}</div>
         <div class="pred-score-sub">综合分 / 100</div>
@@ -435,8 +566,9 @@ function renderPredictionDashboard(meta) {
         ${actionBoxHtml}
         <div class="pred-pills">
           <div class="pred-pill conf-${confClass}">数据置信 ${confPct}%</div>
-          ${strategies.dca ? `<div class="pred-pill">${esc(strategies.dca)}</div>` : ''}
-          ${strategies.position ? `<div class="pred-pill">${esc(strategies.position)}</div>` : ''}
+          ${gatePill}
+          ${strategies.dca && (qualityGate?.actionable !== false) ? `<div class="pred-pill">${esc(strategies.dca)}</div>` : ''}
+          ${strategies.position && (qualityGate?.actionable !== false) ? `<div class="pred-pill">${esc(strategies.position)}</div>` : ''}
         </div>
       </div>
     </div>
@@ -499,6 +631,7 @@ function getFileInfos(files) {
     const scoreInfo = extractScore(md);
     const quantInfo = extractQuantScore(md);
     const dims = extractDimensionScores(md);
+    const qualityGate = extractDataQualityGate(md);
     const kind = classifyDoc(f);
     let dateLabel = f.replace(/\.md$/, '');
     if (kind === 'analysis') dateLabel = f.replace('goldrush-analysis-', '').replace('.md', '');
@@ -526,9 +659,10 @@ function getFileInfos(files) {
       similarSummary: summarizeSimilarDays(extractSimilarDays(md)),
       calibration: extractCalibration(md),
       confidence: extractDataConfidence(md),
+      qualityGate,
       scenarios: extractScenarios(md),
       strategies: extractStrategies(md),
-      advice: scoreInfo ? plainAdvice(scoreInfo.score, scoreInfo.direction) : null,
+      advice: resolveAdvice(scoreInfo, qualityGate),
     };
   });
 }
@@ -560,13 +694,25 @@ function renderIndex(fileInfos) {
   const latest = analyses[0] ?? null;
   const rest = analyses.slice(1);
 
-  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'}">
-    <div class="hero-badge">最新研判</div>
+  // 量化评分小标签（列表页/英雄卡片复用）
+  const quantChip = (info) => {
+    if (!info.quantInfo?.quantScore) return '';
+    const q = info.quantInfo.quantScore;
+    const s = info.score ?? q;
+    const d = s - q;
+    const label = d > 5 ? `LLM偏高+${d}` : d < -5 ? `LLM偏低${d}` : d > 0 ? `略高+${d}` : d < 0 ? `略低${d}` : '一致';
+    const color = d > 5 ? '#ef4444' : d < -5 ? '#22c55e' : '#94a3b8';
+    return `<span class="hero-quant-chip" style="color:${color}">🔢 量化 ${q} · ${label}</span>`;
+  };
+
+  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'} ${latest.qualityGate && !latest.qualityGate.actionable ? 'hero-blocked' : ''}">
+    <div class="hero-badge">最新研判 ${qualityDot(latest.qualityGate)}</div>
     <div class="hero-left">${scoreBadge(latest.score)}</div>
     <div class="hero-body">
-      <div class="hero-date">${esc(latest.dateLabel)}</div>
+      <div class="hero-date">${esc(latest.dateLabel)} ${latest.qualityGate ? `<span class="hero-dq">${latest.qualityGate.emoji} ${latest.qualityGate.label}${latest.confidence != null ? ' · ' + latest.confidence + '%' : ''}</span>` : ''}</div>
       ${latest.advice ? `<div class="hero-verdict">${latest.advice.emoji} ${esc(latest.advice.headline)}</div>` : '<div class="hero-title">黄金投资日报</div>'}
       ${latest.advice ? `<div class="hero-action">💡 ${esc(latest.advice.action)}</div>` : ''}
+      ${quantChip(latest)}
       ${latest.scenarios ? `<div class="hero-scenarios">${latest.scenarios.map(s => `<span class="sc-mini sc-${s.cls}">${s.icon}${s.probability}%</span>`).join('')}</div>` : ''}
       ${latest.calibration && (latest.calibration.sample == null || latest.calibration.sample < CALIBRATION_SAMPLE_WARN)
         ? `<div class="hero-sample-warn">⚠️ 校准样本不足${latest.calibration.sample != null ? `（${latest.calibration.sample}）` : ''}</div>` : ''}
@@ -577,11 +723,14 @@ function renderIndex(fileInfos) {
 
   const cardRows = rest.map(info => {
     const mtimeStr = info.mtime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(info.filename + ' ' + info.dateLabel + ' ' + (info.score ?? '') + ' ' + (info.advice?.label ?? ''))}">
-      <div class="rc-score">${scoreBadge(info.score)}</div>
+    const verdictHtml = info.qualityGate && !info.qualityGate.actionable
+      ? `<div class="rc-verdict"><span class="verdict-chip" style="color:#94a3b8;background:#33415544;border-color:#64748b33">🔴 数据不可用 · 勿据此加减仓</span></div>`
+      : (info.advice ? `<div class="rc-verdict">${renderCardVerdict(info.score, info.direction)}</div>` : `<div class="rc-snippet muted">${esc(info.filename)}</div>`);
+    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(info.filename + ' ' + info.dateLabel + ' ' + (info.score ?? '') + ' ' + (info.advice?.label ?? '') + ' ' + (info.qualityGate?.label ?? ''))}">
+      <div class="rc-score">${scoreBadge(info.score)}${qualityDot(info.qualityGate)}</div>
       <div class="rc-body">
-        <div class="rc-date">${info.dateLabel}</div>
-        ${info.advice ? `<div class="rc-verdict">${renderCardVerdict(info.score, info.direction)}</div>` : `<div class="rc-snippet muted">${esc(info.filename)}</div>`}
+        <div class="rc-date">${info.dateLabel} ${info.confidence != null ? `<span class="rc-conf">置信 ${info.confidence}%</span>` : ''}</div>
+        ${verdictHtml}
         <div class="rc-meta">${mtimeStr}</div>
       </div>
     </a>`;
@@ -684,6 +833,10 @@ function renderIndex(fileInfos) {
     .hero-date { font-size: 0.78rem; color: #64748b; letter-spacing: 0.5px; }
     .hero-title { font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin: 4px 0 8px; }
     .hero-action { font-size: 0.88rem; color: #cbd5e1; line-height: 1.5; margin-bottom: 4px; }
+    .hero-quant-chip {
+      display: inline-block; font-size: 0.72rem; font-weight: 600;
+      margin-top: 4px; margin-bottom: 4px;
+    }
     .hero-macro { font-size: 0.82rem; color: #93c5fd; margin-bottom: 6px; font-weight: 500; }
     .hero-short { font-size: 0.82rem; color: #94a3b8; }
     .hero-dims { margin-top: 10px; }
@@ -970,21 +1123,22 @@ function renderArticle(mdFilename, rawMarkdown) {
   const similarSummary = summarizeSimilarDays(similar);
   const calibration = extractCalibration(rawMarkdown);
   const confidence = extractDataConfidence(rawMarkdown);
+  const qualityGate = extractDataQualityGate(rawMarkdown);
   const scenarios = extractScenarios(rawMarkdown);
   const strategies = extractStrategies(rawMarkdown);
   const quantInfo = extractQuantScore(rawMarkdown);
-  const advice = scoreInfo ? plainAdvice(scoreInfo.score, scoreInfo.direction) : null;
+  const advice = resolveAdvice(scoreInfo, qualityGate);
 
   // Quick-read card only for analysis
   const quickReadHtml = kind === 'analysis' ? renderQuickRead({
-    scoreInfo, advice, dims, calibration, quantInfo,
+    scoreInfo, advice, dims, calibration, quantInfo, qualityGate,
   }) : '';
 
   // Flow reports get specialized dashboard
   const flowDashboardHtml = kind === 'flow' ? renderFlowDashboard(rawMarkdown) : '';
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
-    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo,
+    scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;
@@ -1271,6 +1425,36 @@ function renderArticle(mdFilename, rawMarkdown) {
     .sim-row span.up { color: #22c55e; font-weight: 600; }
     .sim-row span.down { color: #ef4444; font-weight: 600; }
     .sim-summary { font-size: 0.72rem; color: #86efac; margin-bottom: 8px; line-height: 1.4; }
+
+    /* 数据质量门禁条 */
+    .dq-banner {
+      border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
+      border: 1px solid #334155; font-size: 0.88rem; line-height: 1.45;
+    }
+    .dq-banner.dq-green { background: #052e1a88; border-color: #22c55e55; color: #bbf7d0; }
+    .dq-banner.dq-yellow { background: #42200688; border-color: #f59e0b55; color: #fde68a; }
+    .dq-banner.dq-red { background: #450a0a99; border-color: #ef444466; color: #fecaca; }
+    .dq-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-weight: 700; }
+    .dq-emoji { font-size: 1.1rem; }
+    .dq-conf { font-weight: 600; opacity: 0.9; font-size: 0.82rem; }
+    .dq-action { margin-top: 6px; font-size: 0.85rem; opacity: 0.95; }
+    .dq-notes { margin-top: 8px; font-size: 0.78rem; opacity: 0.85; }
+    .dq-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      margin-left: 6px; vertical-align: middle;
+    }
+    .dq-dot-green { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+    .dq-dot-yellow { background: #f59e0b; box-shadow: 0 0 6px #f59e0b88; }
+    .dq-dot-red { background: #ef4444; box-shadow: 0 0 6px #ef444488; }
+    .hero-dq { font-size: 0.75rem; color: #94a3b8; margin-left: 8px; font-weight: 500; }
+    .rc-conf { font-size: 0.72rem; color: #64748b; margin-left: 6px; }
+    .hero-blocked, .qr-blocked, .pred-hero-blocked { opacity: 0.92; }
+    .pred-action-blocked { border-style: dashed !important; }
+    .pred-quant-hint { font-size: 0.68rem; color: #fbbf24; margin-top: 4px; }
+    .qr-dq { display: block; text-align: center; font-size: 0.65rem; margin-top: 4px; color: #94a3b8; }
+    .qr-dq-green { color: #86efac; }
+    .qr-dq-yellow { color: #fcd34d; }
+    .qr-dq-red { color: #fca5a5; }
 
     /* 预测仪表盘 */
     .pred-dashboard { margin-bottom: 32px; }
