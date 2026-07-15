@@ -33,7 +33,7 @@ describe('gradeSource', () => {
 });
 
 describe('crossValidate — 单源不应标为 verified', () => {
-  it('单源返回 single_source 且置信度低于多源 verified', () => {
+  it('单源返回 single_source；B 级 50、A 级 72', () => {
     const r = crossValidate('london.price', [{
       value: 2650,
       source: 'Kitco',
@@ -41,7 +41,16 @@ describe('crossValidate — 单源不应标为 verified', () => {
       timestamp: new Date().toISOString(),
     }]);
     expect(r.consensus).toBe('single_source');
+    expect(r.confidence).toBe(50);
     expect(r.confidence).toBeLessThan(70);
+
+    const a = crossValidate('london.price', [{
+      value: 2650,
+      source: 'gold-api.com',
+      grade: 'A',
+      timestamp: new Date().toISOString(),
+    }]);
+    expect(a.confidence).toBe(72);
   });
 
   it('validationSourcesFromPrices 合并主源与备用源', () => {

@@ -43,6 +43,19 @@ export function checkPriceConsistency(
   const warnings: string[] = [];
   let bonus = 0;
 
+  // 伦敦价缺失/0：跳过历史跳变检查，避免 -100% 假警报
+  if (londonPrice == null || !Number.isFinite(londonPrice) || londonPrice <= 0) {
+    return {
+      bonusConfidence: -10,
+      warnings: ['🔴 伦敦金价格缺失或为 0，跳过一致性校验'],
+      details: {
+        crossMarket: { passed: false, deviationPct: 0, impliedShanghai: null },
+        yahooAnchor: { passed: false, deviationPct: null, yahooPrice: yahooGoldPrice },
+        historical: { passed: false, dayChangePct: null },
+      },
+    };
+  }
+
   // ===== 1. 伦敦-上海套利检查 =====
   let crossMarketPassed = false;
   let crossDeviation = 0;

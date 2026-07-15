@@ -3,12 +3,17 @@
 import type { GoldPriceRecord } from '../types/market.js';
 import { deviationFromMA } from '../indicators/index.js';
 
-/** 收盘价 forward-fill，保持与 records 时间序一致 */
+/** 有效伦敦金收盘（拒绝 null 与 ≤0，避免 0 污染 MA/RSI） */
+function validClose(v: number | null | undefined): v is number {
+  return v != null && Number.isFinite(v) && v > 0;
+}
+
+/** 收盘价 forward-fill，保持与 records 时间序一致；跳过 0/无效价 */
 export function forwardFillCloses(records: GoldPriceRecord[]): number[] {
   const closes: number[] = [];
   let last: number | null = null;
   for (const r of records) {
-    if (r.londonClose != null) last = r.londonClose;
+    if (validClose(r.londonClose)) last = r.londonClose;
     if (last != null) closes.push(last);
   }
   return closes;

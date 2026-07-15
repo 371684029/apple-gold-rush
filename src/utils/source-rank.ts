@@ -4,7 +4,7 @@ import type { SourceGrade, ValidationResult, ValidationSource, ValidationConsens
 
 /** 已知来源分级映射 */
 const SOURCE_GRADES: Record<string, SourceGrade> = {
-  // A级（权威）
+  // A级（权威 / 直连锚定）
   '上海黄金交易所': 'A',
   'COMEX': 'A',
   'CME': 'A',
@@ -14,6 +14,21 @@ const SOURCE_GRADES: Record<string, SourceGrade> = {
   'World Gold Council': 'A',
   'BIS': 'A',
   'IMF': 'A',
+  'LBMA': 'A',
+  'gold-api.com': 'A',
+  'gold-api': 'A',
+  'Yahoo Finance': 'A',
+  'Yahoo Finance GC=F': 'A',
+  'Yahoo Finance DX-Y.NYB': 'A',
+  'FRED': 'A',
+  'FRED DGS10': 'A',
+  'FRED DFII10': 'A',
+  'FRED DTWEXBGS': 'A',
+  'sina hf_GC': 'A',
+  'sina DINIW': 'A',
+  'sina': 'A',
+  '新浪': 'A',
+  '新浪财经': 'A',
 
   // B级（可信）
   '金十数据': 'B',
@@ -39,6 +54,13 @@ const SOURCE_GRADES: Record<string, SourceGrade> = {
   '头条': 'C',
   '微信公众号': 'C',
 };
+
+/** 单源字段置信度：A 级直连不再封顶 55 */
+export function singleSourceConfidence(grade: SourceGrade): number {
+  if (grade === 'A') return 72;
+  if (grade === 'B') return 50;
+  return 35;
+}
 
 /** 判断来源可信度等级 */
 export function gradeSource(sourceName: string): SourceGrade {
@@ -76,13 +98,12 @@ export function crossValidate(
 
   if (sources.length === 1) {
     const grade = sources[0].grade;
-    const confidence = grade === 'A' ? 55 : grade === 'B' ? 45 : 35;
     return {
       field,
       sources,
       consensus: 'single_source',
       finalValue: sources[0].value,
-      confidence,
+      confidence: singleSourceConfidence(grade),
     };
   }
 
@@ -160,18 +181,20 @@ export function checkFreshness(dataTime: string, thresholdHours: number = 4): { 
   return { fresh: true, ageHours: Math.round(ageHours * 10) / 10 };
 }
 
-/** 主报价 + 备用来源 → 交叉验证输入 */
+/** 主报价 + 备用来源 → 交叉验证输入（拒绝 0 / N/A） */
 export function validationSourcesFromPrices(
   primary: SourcedPrice | undefined,
   alts?: SourcedPrice[],
 ): ValidationSource[] {
   const sources: ValidationSource[] = [];
   const push = (p: SourcedPrice | undefined) => {
-    if (p?.value == null || !Number.isFinite(p.value)) return;
+    if (p?.value == null || !Number.isFinite(p.value) || p.value === 0) return;
+    if (p.source === 'N/A') return;
+    const src = p.source ?? 'unknown';
     sources.push({
       value: p.value,
-      source: p.source ?? 'unknown',
-      grade: (p.sourceGrade ?? gradeSource(p.source ?? '')) as SourceGrade,
+      source: src,
+      grade: (p.sourceGrade ?? gradeSource(src)) as SourceGrade,
       timestamp: p.verifiedAt ?? '',
     });
   };
@@ -180,4 +203,23 @@ export function validationSourcesFromPrices(
     push(alt);
   }
   return sources;
+}
+
+/**
+ * 字段置信度加权平均：伦敦金 50%，其余字段平分 50%。
+ * 避免上海/ETF 单源把「金价已锚定」的总分拖死。
+ */
+export function weightedFieldConfidence(validations: ValidationResult[]): number {
+  if (validations.length === 0) return 50;
+
+  const london = validations.find(v => v.field === 'london.price' || v.field.startsWith('london'));
+  const others = validations.filter(v => v !== london);
+
+  if (!london) {
+    return Math.round(validations.reduce((s, v) => s + v.confidence, 0) / validations.length);
+  }
+  if (others.length === 0) return Math.round(london.confidence);
+
+  const othersAvg = others.reduce((s, v) => s + v.confidence, 0) / others.length;
+  return Math.round(london.confidence * 0.5 + othersAvg * 0.5);
 }
