@@ -1,36 +1,36 @@
 {
-  "asOf": "2026-07-16",
+  "asOf": "2026-07-20",
   "windowDays": 90,
-  "sampleEligible": 31,
+  "sampleEligible": 35,
   "llm": {
-    "hits": 13,
-    "total": 19,
-    "hitRate": 68.4
+    "hits": 19,
+    "total": 25,
+    "hitRate": 76
   },
   "quant": {
-    "hits": 1,
-    "total": 2,
-    "hitRate": 50
+    "hits": 4,
+    "total": 7,
+    "hitRate": 57.1
   },
-  "highScoreUpRate": 33.3,
+  "highScoreUpRate": 0,
   "highScoreN": 3,
-  "lowScoreUpRate": 10,
-  "lowScoreN": 10,
-  "conflictDays": 1,
+  "lowScoreUpRate": 12.5,
+  "lowScoreN": 16,
+  "conflictDays": 3,
   "conflictFollowQuantHits": 1,
-  "conflictFollowLlmHits": 0,
+  "conflictFollowLlmHits": 2,
   "buckets": [
     {
       "range": "0-30",
-      "sample": 5,
-      "upRate": 0,
-      "avgReturn": -2.87
+      "sample": 9,
+      "upRate": 11.1,
+      "avgReturn": -1.9
     },
     {
       "range": "30-50",
-      "sample": 10,
-      "upRate": 20,
-      "avgReturn": -1.66
+      "sample": 12,
+      "upRate": 16.7,
+      "avgReturn": -1.57
     },
     {
       "range": "50-60",
@@ -41,20 +41,60 @@
     {
       "range": "60-70",
       "sample": 3,
-      "upRate": 33.3,
-      "avgReturn": -1.62
+      "upRate": 0,
+      "avgReturn": -1.97
     }
   ],
   "recent": [
+    {
+      "date": "2026-07-20",
+      "llmScore": 28,
+      "quantScore": 45,
+      "direction": "bearish",
+      "pred": "down",
+      "actual5dPct": null,
+      "hit": null,
+      "status": "pending"
+    },
+    {
+      "date": "2026-07-19",
+      "llmScore": 24,
+      "quantScore": 43,
+      "direction": "bearish",
+      "pred": "down",
+      "actual5dPct": null,
+      "hit": null,
+      "status": "pending"
+    },
+    {
+      "date": "2026-07-18",
+      "llmScore": 25,
+      "quantScore": 43,
+      "direction": "bearish",
+      "pred": "down",
+      "actual5dPct": null,
+      "hit": null,
+      "status": "pending"
+    },
+    {
+      "date": "2026-07-17",
+      "llmScore": 27,
+      "quantScore": 42,
+      "direction": "bearish",
+      "pred": "down",
+      "actual5dPct": 0.47,
+      "hit": false,
+      "status": "miss"
+    },
     {
       "date": "2026-07-16",
       "llmScore": 33,
       "quantScore": 35,
       "direction": "bearish",
       "pred": "down",
-      "actual5dPct": null,
-      "hit": null,
-      "status": "pending"
+      "actual5dPct": -1.56,
+      "hit": true,
+      "status": "hit"
     },
     {
       "date": "2026-07-16",
@@ -62,9 +102,9 @@
       "quantScore": 36,
       "direction": "bearish",
       "pred": "down",
-      "actual5dPct": null,
-      "hit": null,
-      "status": "pending"
+      "actual5dPct": -1.56,
+      "hit": true,
+      "status": "hit"
     },
     {
       "date": "2026-07-15",
@@ -72,9 +112,9 @@
       "quantScore": 36,
       "direction": "bearish",
       "pred": "down",
-      "actual5dPct": null,
-      "hit": null,
-      "status": "pending"
+      "actual5dPct": -0.72,
+      "hit": true,
+      "status": "hit"
     },
     {
       "date": "2026-07-15",
@@ -82,9 +122,9 @@
       "quantScore": 60,
       "direction": "bearish",
       "pred": "down",
-      "actual5dPct": null,
-      "hit": null,
-      "status": "pending"
+      "actual5dPct": -0.72,
+      "hit": true,
+      "status": "hit"
     },
     {
       "date": "2026-07-14",
@@ -92,9 +132,9 @@
       "quantScore": null,
       "direction": "bearish",
       "pred": "down",
-      "actual5dPct": null,
-      "hit": null,
-      "status": "pending"
+      "actual5dPct": -0.96,
+      "hit": true,
+      "status": "hit"
     },
     {
       "date": "2026-07-13",
@@ -102,9 +142,9 @@
       "quantScore": null,
       "direction": "bullish",
       "pred": "up",
-      "actual5dPct": 0.07,
-      "hit": null,
-      "status": "flat"
+      "actual5dPct": -0.99,
+      "hit": false,
+      "status": "miss"
     },
     {
       "date": "2026-07-11",
@@ -145,47 +185,7 @@
       "actual5dPct": -1.53,
       "hit": true,
       "status": "hit"
-    },
-    {
-      "date": "2026-07-08",
-      "llmScore": 37,
-      "quantScore": null,
-      "direction": null,
-      "pred": "down",
-      "actual5dPct": -2.54,
-      "hit": true,
-      "status": "hit"
-    },
-    {
-      "date": "2026-07-07",
-      "llmScore": 40,
-      "quantScore": null,
-      "direction": "bearish",
-      "pred": "down",
-      "actual5dPct": -1.75,
-      "hit": true,
-      "status": "hit"
-    },
-    {
-      "date": "2026-07-07",
-      "llmScore": 43,
-      "quantScore": null,
-      "direction": "bearish",
-      "pred": "down",
-      "actual5dPct": -1.75,
-      "hit": true,
-      "status": "hit"
-    },
-    {
-      "date": "2026-07-06",
-      "llmScore": 51,
-      "quantScore": null,
-      "direction": "neutral",
-      "pred": "flat",
-      "actual5dPct": -2.6,
-      "hit": null,
-      "status": "flat"
     }
   ],
-  "summary": "LLM 方向命中 68%（13/19） · 量化命中 50%（1/2） · 高分段(≥60) 5日涨 33% · 低分段(≤40) 5日涨 10% · 冲突日 1（跟量化 1 / 跟LLM 0）"
+  "summary": "LLM 方向命中 76%（19/25） · 量化命中 57%（4/7） · 高分段(≥60) 5日涨 0% · 低分段(≤40) 5日涨 13% · 冲突日 3（跟量化 1 / 跟LLM 2）"
 }
