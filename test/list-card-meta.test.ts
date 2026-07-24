@@ -3,8 +3,11 @@ import {
   listDualScores,
   synthesizeNeighborDelta,
   attachNeighborDeltas,
+  attachPredictionOutcomes,
+  describeOutcome,
   renderListDualHtml,
   renderListDeltaHtml,
+  renderListOutcomeHtml,
   fmtSigned,
 } from '../web/list-card-meta.cjs';
 
@@ -74,6 +77,53 @@ describe('list-card-meta', () => {
     expect(rows[0].listDelta.source).toBe('md');
     expect(rows[1].listDelta.source).toBe('neighbor');
     expect(rows[1].listDelta.scoreDelta).toBe(2);
-    expect(rows[2].listDelta).toBeNull(); // 最旧无上一日
+    expect(rows[2].listDelta).toBeNull();
+  });
+
+  it('describeOutcome：命中带顺预测与同档偏差', () => {
+    const d = describeOutcome({
+      date: '2026-07-10',
+      pred: 'up',
+      actual5dPct: 1.2,
+      hit: true,
+      status: 'hit',
+      alignPct: 1.2,
+      bucketAvgReturn: 0.8,
+      vsBucketPct: 0.4,
+      quantStatus: 'hit',
+    });
+    expect(d.tone).toBe('hit');
+    expect(d.detail).toMatch(/方向命中/);
+    expect(d.detail).toMatch(/顺预测/);
+    expect(d.detail).toMatch(/相对同档/);
+    expect(d.detail).toMatch(/量化亦中/);
+    expect(renderListOutcomeHtml({
+      pred: 'up', actual5dPct: 1.2, status: 'hit', alignPct: 1.2,
+    }, s => s)).toContain('rc-out-hit');
+  });
+
+  it('describeOutcome：打脸补算逆预测（旧 JSON 无 alignPct）', () => {
+    const d = describeOutcome({
+      pred: 'up',
+      actual5dPct: -2.1,
+      hit: false,
+      status: 'miss',
+    });
+    expect(d.tone).toBe('miss');
+    expect(d.detail).toMatch(/打脸/);
+    expect(d.detail).toMatch(/逆预测 2\.1%/);
+  });
+
+  it('attachPredictionOutcomes 按 dateLabel 挂载', () => {
+    const rows = attachPredictionOutcomes(
+      [{ dateLabel: '2026-07-10', score: 64 }, { dateLabel: '2026-07-09', score: 50 }],
+      {
+        recent: [
+          { date: '2026-07-10', pred: 'up', actual5dPct: 1.2, status: 'hit', hit: true },
+        ],
+      },
+    );
+    expect(rows[0].outcome.status).toBe('hit');
+    expect(rows[1].outcome).toBeNull();
   });
 });

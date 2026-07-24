@@ -653,7 +653,23 @@ header.home-hero .subtitle {
   font-size: 0.7rem; font-weight: 600; margin-left: 6px; padding: 2px 8px; border-radius: 980px;
   background: rgba(255, 159, 10, 0.1); border: 0.5px solid rgba(255, 159, 10, 0.22); color: var(--yellow-text, #9a6700);
 }
-.hero-card .rc-dual, .hero-card .rc-delta { margin-top: 6px; }
+.rc-outcome {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin-top: 5px; padding: 6px 8px; border-radius: var(--radius-sm);
+  font-size: 0.74rem; line-height: 1.4; font-weight: 500;
+  background: rgba(0,0,0,0.03); border: 0.5px solid var(--hairline); color: var(--text-2);
+}
+.rc-out-mark { flex-shrink: 0; line-height: 1.35; }
+.rc-out-text { flex: 1; min-width: 0; }
+.rc-outcome.rc-out-hit {
+  background: rgba(52, 199, 89, 0.1); border-color: rgba(52, 199, 89, 0.28); color: var(--green);
+}
+.rc-outcome.rc-out-miss {
+  background: rgba(255, 59, 48, 0.08); border-color: rgba(255, 59, 48, 0.22); color: var(--red);
+}
+.rc-outcome.rc-out-pending { color: var(--text-3); }
+.rc-outcome.rc-out-flat { color: var(--text-2); }
+.hero-card .rc-dual, .hero-card .rc-delta, .hero-card .rc-outcome { margin-top: 6px; }
 .rc-kind {
   flex-shrink: 0; align-self: center;
   font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;

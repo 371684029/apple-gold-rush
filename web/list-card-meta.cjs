@@ -1,5 +1,5 @@
 /**
- * 首页历史日报列表：双打分条 + 较上日差分（含旧报告相邻推算）
+ * 首页历史日报列表：双打分条 + 较上日差分（含旧报告相邻推算）+ 预测对错
  * 纯函数，供 server.cjs 与单测共用。
  */
 
@@ -15,6 +15,12 @@ function fmtSigned(n, digits = 0) {
   if (v > 0) return `+${v}`;
   if (v === 0) return '±0';
   return String(v);
+}
+
+function predLabel(pred) {
+  if (pred === 'up') return '涨';
+  if (pred === 'down') return '跌';
+  return '中性';
 }
 
 /**
@@ -103,8 +109,97 @@ function attachNeighborDeltas(analyses) {
   });
 }
 
+/** stats.recent → 按日期索引 */
+function indexOutcomesByDate(stats) {
+  const map = Object.create(null);
+  for (const r of (stats && stats.recent) || []) {
+    if (r && r.date) map[r.date] = r;
+  }
+  return map;
+}
+
 /**
- * 列表双打分行 HTML（调用方负责 esc；此处只拼结构，文本已是数字）
+ * 把 goldrush-stats 的按日对错挂到列表项（dateLabel = YYYY-MM-DD）
+ */
+function attachPredictionOutcomes(analyses, stats) {
+  if (!Array.isArray(analyses) || !analyses.length) return analyses || [];
+  const byDate = indexOutcomesByDate(stats);
+  return analyses.map(a => ({
+    ...a,
+    outcome: byDate[a.dateLabel] || null,
+  }));
+}
+
+/**
+ * 可读对错摘要（学会怎么看报告用）
+ * 兼容旧版 stats JSON（无 alignPct / vsBucketPct 时现场补算）
+ */
+function enrichOutcome(o) {
+  if (!o) return null;
+  let alignPct = numOrNull(o.alignPct);
+  const actual = numOrNull(o.actual5dPct);
+  if (alignPct == null && actual != null) {
+    if (o.pred === 'up') alignPct = actual;
+    else if (o.pred === 'down') alignPct = -actual;
+  }
+  return { ...o, alignPct };
+}
+
+function describeOutcome(raw) {
+  const o = enrichOutcome(raw);
+  if (!o) return null;
+  const predZh = predLabel(o.pred);
+  if (o.status === 'pending') {
+    return {
+      tone: 'pending',
+      mark: '⏳',
+      short: '5日结果待回填',
+      detail: `当日预测${predZh}；约 5 个交易日后才能对账（>55记涨、<45记跌）`,
+    };
+  }
+  const ret = o.actual5dPct;
+  const retStr = ret == null ? '—' : `${ret > 0 ? '+' : ''}${ret}%`;
+  let alignStr = '';
+  if (o.alignPct != null) {
+    alignStr = o.alignPct >= 0
+      ? `顺预测 +${o.alignPct}%`
+      : `逆预测 ${Math.abs(o.alignPct)}%`;
+  }
+  let vsStr = '';
+  if (o.vsBucketPct != null && o.bucketAvgReturn != null) {
+    const avg = `${o.bucketAvgReturn > 0 ? '+' : ''}${o.bucketAvgReturn}%`;
+    vsStr = `相对同档 ${o.vsBucketPct > 0 ? '+' : ''}${o.vsBucketPct}%（同档均 ${avg}）`;
+  }
+
+  let tone = 'flat';
+  let mark = '➖';
+  let short = `中性/持平不计 · 5日 ${retStr}`;
+  if (o.status === 'hit') {
+    tone = 'hit';
+    mark = '✅';
+    short = `方向命中 · 预测${predZh}→5日 ${retStr}`;
+  } else if (o.status === 'miss') {
+    tone = 'miss';
+    mark = '❌';
+    short = `方向打脸 · 预测${predZh}→5日 ${retStr}`;
+  }
+
+  const bits = [short];
+  if (alignStr) bits.push(alignStr);
+  if (vsStr) bits.push(vsStr);
+  if (o.quantStatus === 'hit') bits.push('量化亦中');
+  else if (o.quantStatus === 'miss') bits.push('量化打脸');
+
+  return {
+    tone,
+    mark,
+    short,
+    detail: bits.join(' · '),
+  };
+}
+
+/**
+ * 列表双打分行 HTML
  */
 function renderListDualHtml(dual, escFn) {
   const esc = typeof escFn === 'function' ? escFn : (s) => String(s);
@@ -145,6 +240,22 @@ function renderListDeltaHtml(dd, escFn) {
 }
 
 /**
+ * 列表预测对错 HTML（教用户怎么读报告）
+ */
+function renderListOutcomeHtml(outcome, escFn) {
+  const esc = typeof escFn === 'function' ? escFn : (s) => String(s);
+  const d = describeOutcome(outcome);
+  if (!d) return '';
+  const title = esc(
+    '5日后金价涨跌对账：>55 预测涨、<45 预测跌；顺预测=朝预测方向走的幅度；相对同档=本日涨跌减同评分区间历史均值',
+  );
+  return `<div class="rc-outcome rc-out-${d.tone}" title="${title}">
+    <span class="rc-out-mark">${d.mark}</span>
+    <span class="rc-out-text">${esc(d.detail)}</span>
+  </div>`;
+}
+
+/**
  * 仓位小标签
  */
 function renderListPosHtml(pos, escFn) {
@@ -156,6 +267,7 @@ function renderListPosHtml(pos, escFn) {
 function buildCardSearchBlob(info) {
   const dual = listDualScores(info);
   const dd = info.listDelta || info.dayDelta;
+  const oc = describeOutcome(info.outcome);
   return [
     info.filename,
     info.dateLabel,
@@ -167,16 +279,25 @@ function buildCardSearchBlob(info) {
     info.qualityGate?.label,
     dd?.headline,
     info.positionRec?.targetPct != null ? `仓位${info.positionRec.targetPct}` : '',
+    oc?.short,
+    oc?.tone === 'hit' ? '命中' : '',
+    oc?.tone === 'miss' ? '打脸' : '',
   ].filter(Boolean).join(' ');
 }
 
 module.exports = {
   fmtSigned,
+  predLabel,
   listDualScores,
   synthesizeNeighborDelta,
   attachNeighborDeltas,
+  indexOutcomesByDate,
+  attachPredictionOutcomes,
+  enrichOutcome,
+  describeOutcome,
   renderListDualHtml,
   renderListDeltaHtml,
+  renderListOutcomeHtml,
   renderListPosHtml,
   buildCardSearchBlob,
 };

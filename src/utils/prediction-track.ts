@@ -23,6 +23,19 @@ export interface PredictionRecentRow {
   actual5dPct: number | null;
   hit: boolean | null; // null = 未回填/持平不计
   status: 'hit' | 'miss' | 'pending' | 'flat';
+  /**
+   * 顺预测幅度（%）：预测涨则取实际涨幅；预测跌则取 -实际涨幅。
+   * 正=价格朝预测方向走；负=逆预测。持平/待回填为 null。
+   */
+  alignPct: number | null;
+  /** 同评分区间历史 5 日均涨幅（%），用于「相对同档偏差」 */
+  bucketAvgReturn: number | null;
+  /** 本日实际 − 同档均值（百分点） */
+  vsBucketPct: number | null;
+  /** 量化方向预测（有 quant_score 时） */
+  quantPred: 'up' | 'down' | 'flat' | null;
+  quantHit: boolean | null;
+  quantStatus: 'hit' | 'miss' | 'pending' | 'flat' | null;
 }
 
 export interface PredictionBucketStat {
@@ -130,9 +143,10 @@ export function buildPredictionTrackStats(
     }
   }
 
-  // 近 12 条明细
+  // 全窗明细（供 Web 列表按日挂对错；MD/控制台仍只展示近若干条）
+  const bucketAvgByRange = new Map(buckets.map(b => [b.range, b.avgReturn]));
   const recent: PredictionRecentRow[] = [];
-  for (const r of eligible.slice(0, 14)) {
+  for (const r of eligible) {
     const ret = futureReturn(prices, r.date, T);
     const predDir = predictDirectionFromScore(r.overallScore);
     let pred: PredictionRecentRow['pred'] = 'flat';
@@ -153,6 +167,40 @@ export function buildPredictionTrackStats(
       status = hit ? 'hit' : 'miss';
     }
 
+    let alignPct: number | null = null;
+    if (ret != null && pred === 'up') alignPct = Math.round(ret * 100) / 100;
+    else if (ret != null && pred === 'down') alignPct = Math.round((-ret) * 100) / 100;
+
+    const bucketRange = SCORE_BUCKETS.find(({ min, max }) => {
+      const isLast = max === 100;
+      return r.overallScore >= min && (isLast ? r.overallScore <= max : r.overallScore < max);
+    })?.range ?? null;
+    const bucketAvgReturn = bucketRange != null
+      ? (bucketAvgByRange.get(bucketRange) ?? null)
+      : null;
+    const vsBucketPct = ret != null && bucketAvgReturn != null
+      ? Math.round((ret - bucketAvgReturn) * 100) / 100
+      : null;
+
+    let quantPred: PredictionRecentRow['quantPred'] = null;
+    let quantHit: boolean | null = null;
+    let quantStatus: PredictionRecentRow['quantStatus'] = null;
+    if (r.quantScore != null) {
+      const qDir = predictDirectionFromScore(r.quantScore);
+      quantPred = qDir === 'up' ? 'up' : qDir === 'down' ? 'down' : 'flat';
+      if (ret == null) {
+        quantStatus = 'pending';
+      } else if (Math.abs(ret) <= 0.1 || quantPred === 'flat') {
+        quantStatus = 'flat';
+        quantHit = null;
+      } else {
+        const actualUp = ret > 0.1;
+        const actualDown = ret < -0.1;
+        quantHit = (quantPred === 'up' && actualUp) || (quantPred === 'down' && actualDown);
+        quantStatus = quantHit ? 'hit' : 'miss';
+      }
+    }
+
     recent.push({
       date: r.date,
       llmScore: r.overallScore,
@@ -162,6 +210,12 @@ export function buildPredictionTrackStats(
       actual5dPct: ret != null ? Math.round(ret * 100) / 100 : null,
       hit,
       status,
+      alignPct,
+      bucketAvgReturn,
+      vsBucketPct,
+      quantPred,
+      quantHit,
+      quantStatus,
     });
   }
 
@@ -236,7 +290,10 @@ export function formatPredictionTrackConsole(stats: PredictionTrackStats, indent
     for (const r of stats.recent.slice(0, 8)) {
       const mark = r.status === 'hit' ? '✅' : r.status === 'miss' ? '❌' : r.status === 'flat' ? '➖' : '⏳';
       const ret = r.actual5dPct != null ? `${r.actual5dPct > 0 ? '+' : ''}${r.actual5dPct}%` : '待回填';
-      lines.push(`${indent}    ${mark} ${r.date} LLM=${r.llmScore} 预测=${r.pred} 5日=${ret}`);
+      const align = r.alignPct != null
+        ? (r.alignPct >= 0 ? `顺+${r.alignPct}%` : `逆${r.alignPct}%`)
+        : '';
+      lines.push(`${indent}    ${mark} ${r.date} LLM=${r.llmScore} 预测=${r.pred} 5日=${ret}${align ? ` ${align}` : ''}`);
     }
   }
   return lines.join('\n');
@@ -276,18 +333,22 @@ export function formatPredictionTrackMarkdown(stats: PredictionTrackStats): stri
   if (stats.recent.length) {
     lines.push('### 最近预测明细');
     lines.push('');
-    lines.push('| 日期 | LLM | 量化 | 预测 | 5日涨跌 | 对错 |');
-    lines.push('|------|-----|------|------|---------|------|');
+    lines.push('| 日期 | LLM | 量化 | 预测 | 5日涨跌 | 对错 | 顺/逆预测 | 相对同档 |');
+    lines.push('|------|-----|------|------|---------|------|-----------|----------|');
     for (const r of stats.recent.slice(0, 12)) {
       const mark = r.status === 'hit' ? '✅' : r.status === 'miss' ? '❌' : r.status === 'flat' ? '➖' : '⏳';
       const ret = r.actual5dPct != null ? `${r.actual5dPct > 0 ? '+' : ''}${r.actual5dPct}%` : '—';
       const q = r.quantScore != null ? String(r.quantScore) : '—';
-      lines.push(`| ${r.date} | ${r.llmScore} | ${q} | ${r.pred} | ${ret} | ${mark} |`);
+      const align = r.alignPct == null ? '—'
+        : r.alignPct >= 0 ? `顺 +${r.alignPct}%` : `逆 ${Math.abs(r.alignPct)}%`;
+      const vs = r.vsBucketPct == null ? '—'
+        : `${r.vsBucketPct > 0 ? '+' : ''}${r.vsBucketPct}%`;
+      lines.push(`| ${r.date} | ${r.llmScore} | ${q} | ${r.pred} | ${ret} | ${mark} | ${align} | ${vs} |`);
     }
     lines.push('');
   }
 
-  lines.push('> 预测方向：分数 &gt;55 记「涨」，&lt;45 记「跌」，中间不计入命中率；持平(|涨跌|≤0.1%) 不计对错。非投资业绩承诺。');
+  lines.push('> 预测方向：分数 &gt;55 记「涨」，&lt;45 记「跌」，中间不计入命中率；持平(|涨跌|≤0.1%) 不计对错。**顺/逆预测**：价格是否朝预测方向走；**相对同档**：本日 5 日涨跌 − 同评分区间历史均值。非投资业绩承诺。');
   lines.push('');
   return lines.join('\n');
 }

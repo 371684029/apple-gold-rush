@@ -32,6 +32,12 @@ function sampleStats(): PredictionTrackStats {
         actual5dPct: 1.2,
         hit: true,
         status: 'hit',
+        alignPct: 1.2,
+        bucketAvgReturn: 0.8,
+        vsBucketPct: 0.4,
+        quantPred: 'up',
+        quantHit: true,
+        quantStatus: 'hit',
       },
       {
         date: '2026-07-15',
@@ -42,6 +48,12 @@ function sampleStats(): PredictionTrackStats {
         actual5dPct: null,
         hit: null,
         status: 'pending',
+        alignPct: null,
+        bucketAvgReturn: null,
+        vsBucketPct: null,
+        quantPred: null,
+        quantHit: null,
+        quantStatus: null,
       },
     ],
     summary: 'LLM 方向命中 70% · 量化命中 67%',
@@ -58,5 +70,6 @@ describe('prediction-track formatters', () => {
     expect(md).toContain('最近预测明细');
     expect(md).toContain('2026-07-10');
     expect(md).toContain('✅');
+    expect(md).toContain('顺/逆预测');
   });
 });

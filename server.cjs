@@ -11,8 +11,10 @@ const { homeCss, articleCss } = require('./web/theme-css.cjs');
 const {
   listDualScores,
   attachNeighborDeltas,
+  attachPredictionOutcomes,
   renderListDualHtml,
   renderListDeltaHtml,
+  renderListOutcomeHtml,
   renderListPosHtml,
   buildCardSearchBlob,
 } = require('./web/list-card-meta.cjs');
@@ -501,7 +503,9 @@ function renderPredictionStatsPanel(stats) {
     const mark = r.status === 'hit' ? '✅' : r.status === 'miss' ? '❌' : r.status === 'flat' ? '➖' : '⏳';
     const ret = r.actual5dPct != null ? `${r.actual5dPct > 0 ? '+' : ''}${r.actual5dPct}%` : '—';
     const q = r.quantScore != null ? r.quantScore : '—';
-    return `<tr><td>${esc(r.date)}</td><td>${r.llmScore}</td><td>${q}</td><td>${esc(r.pred)}</td><td>${ret}</td><td>${mark}</td></tr>`;
+    const align = r.alignPct == null ? '—'
+      : r.alignPct >= 0 ? `顺+${r.alignPct}%` : `逆${Math.abs(r.alignPct)}%`;
+    return `<tr><td>${esc(r.date)}</td><td>${r.llmScore}</td><td>${q}</td><td>${esc(r.pred)}</td><td>${ret}</td><td>${mark}</td><td>${esc(align)}</td></tr>`;
   }).join('');
 
   return `<div class="pred-stats-panel" role="region" aria-label="历史预测对错">
@@ -525,7 +529,7 @@ function renderPredictionStatsPanel(stats) {
       ${bucketRows ? `<div class="ps-subhead">评分区间 vs 实际 5 日</div>
         <table class="ps-table"><thead><tr><th>区间</th><th>样本</th><th>涨概率</th><th>均涨幅</th></tr></thead><tbody>${bucketRows}</tbody></table>` : ''}
       ${recentRows ? `<div class="ps-subhead">最近预测明细</div>
-        <table class="ps-table"><thead><tr><th>日期</th><th>LLM</th><th>量化</th><th>预测</th><th>5日</th><th>对错</th></tr></thead><tbody>${recentRows}</tbody></table>` : ''}
+        <table class="ps-table"><thead><tr><th>日期</th><th>LLM</th><th>量化</th><th>预测</th><th>5日</th><th>对错</th><th>顺/逆</th></tr></thead><tbody>${recentRows}</tbody></table>` : ''}
     </details>
     <div class="ps-note">&gt;55 记涨、&lt;45 记跌，中间与持平不计命中；非业绩承诺</div>
   </div>`;
@@ -1176,7 +1180,8 @@ function extractFileDate(filename) {
 
 function renderIndex(fileInfos) {
   const analysesRaw = fileInfos.filter(i => i.kind === 'analysis');
-  const analyses = attachNeighborDeltas(analysesRaw);
+  const predictionStats = loadPredictionStats();
+  const analyses = attachPredictionOutcomes(attachNeighborDeltas(analysesRaw), predictionStats);
   const digests = fileInfos.filter(i => i.kind === 'digest');
   const others = fileInfos.filter(i => i.kind !== 'analysis' && i.kind !== 'digest');
 
@@ -1185,6 +1190,7 @@ function renderIndex(fileInfos) {
 
   const dualLine = (info) => renderListDualHtml(listDualScores(info), esc);
   const deltaLine = (info) => renderListDeltaHtml(info.listDelta || info.dayDelta, esc);
+  const outcomeLine = (info) => renderListOutcomeHtml(info.outcome, esc);
   const posChip = (info) => renderListPosHtml(info.positionRec, esc);
 
   const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'} ${latest.qualityGate && !latest.qualityGate.actionable ? 'hero-blocked' : ''} ${(latest.listDelta || latest.dayDelta)?.skipFineRead ? 'hero-skip' : ''}">
@@ -1194,6 +1200,7 @@ function renderIndex(fileInfos) {
       <div class="hero-date">${esc(latest.dateLabel)} ${latest.qualityGate ? `<span class="hero-dq">${latest.qualityGate.emoji} ${latest.qualityGate.label}${latest.confidence != null ? ' · ' + latest.confidence + '%' : ''}</span>` : ''} ${posChip(latest)}</div>
       ${dualLine(latest)}
       ${deltaLine(latest)}
+      ${outcomeLine(latest)}
       ${latest.advice ? `<div class="hero-verdict">${latest.advice.emoji} ${esc(latest.advice.headline)}</div>` : '<div class="hero-title">黄金投资日报</div>'}
       ${latest.advice ? `<div class="hero-action">💡 ${esc(latest.advice.action)}</div>` : ''}
       ${latest.scenarios ? `<div class="hero-scenarios">${latest.scenarios.map(s => `<span class="sc-mini sc-${s.cls}">${s.icon}${s.probability}%</span>`).join('')}</div>` : ''}
@@ -1216,6 +1223,7 @@ function renderIndex(fileInfos) {
         <div class="rc-date">${info.dateLabel} ${info.confidence != null ? `<span class="rc-conf">置信 ${info.confidence}%</span>` : ''} ${posChip(info)}</div>
         ${dualLine(info)}
         ${deltaLine(info)}
+        ${outcomeLine(info)}
         ${verdictHtml}
         <div class="rc-meta">${mtimeStr}</div>
       </div>
@@ -1277,7 +1285,6 @@ function renderIndex(fileInfos) {
       };
     }
   }
-  const predictionStats = loadPredictionStats();
   let latestRel = null;
   if (latest) {
     try {

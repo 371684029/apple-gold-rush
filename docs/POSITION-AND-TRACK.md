@@ -109,7 +109,7 @@
 | `conflictDays` | 双分冲突日数 |
 | `conflictFollowQuantHits` / `…LlmHits` | 冲突日跟量化 / 跟 LLM 谁对 |
 | `buckets[]` | 评分区间 → 样本、涨概率、平均涨幅 |
-| `recent[]` | 近约 12–14 条明细（hit / miss / pending / flat） |
+| `recent[]` | **整窗**按日明细（hit / miss / pending / flat）+ `alignPct` 顺/逆预测 + `vsBucketPct` 相对同档；MD 表仍只展示近 12 条 |
 | `summary` | 一行人话摘要 |
 
 ### 3.4 展示
@@ -118,7 +118,7 @@
 |------|------|
 | CLI | analysis 后打印摘要 + 近况 |
 | Markdown | 关键统计表 + 分桶 + 最近明细 |
-| Web 首页 | 读 `goldrush-stats-latest.json`：统计卡「LLM命中 / 量化命中」+ `pred-stats-panel` |
+| Web 首页 | 读 `goldrush-stats-latest.json`：统计卡 + `pred-stats-panel`；**历史列表每一行**挂当日对错/顺逆预测/同档偏差 |
 | Web 文章 | 同面板嵌在预测仪表盘下方；MD 正文重复节可剥离 |
 
 **注意**：仅部署 `server.cjs` 而不跑 analysis 时，需已有 `docs/goldrush-stats-latest.json`；运维可在项目根用已编译模块单独刷一次 stats（见 §5）。
