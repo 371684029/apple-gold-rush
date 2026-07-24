@@ -619,6 +619,41 @@ header.home-hero .subtitle {
 .rc-snippet.muted { color: var(--text-3); font-family: var(--mono); font-size: 0.75rem; }
 .rc-meta { font-size: 0.72rem; color: var(--text-3); margin-top: 6px; }
 .rc-verdict { margin: 6px 0; }
+.rc-dual {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;
+  font-size: 0.78rem; color: var(--text-2); margin-top: 5px; font-weight: 500;
+}
+.rc-dual strong { color: var(--text); font-weight: 700; }
+.rc-dual-sep { color: var(--text-3); margin: 0 1px; }
+.rc-dual-d { font-variant-numeric: tabular-nums; }
+.rc-dual-ok { color: var(--text-3); }
+.rc-dual-mild { color: var(--yellow-text, #9a6700); }
+.rc-dual-conflict { color: var(--red); font-weight: 700; }
+.rc-dual-flag {
+  font-size: 0.68rem; font-weight: 600; padding: 2px 7px; border-radius: 980px;
+  background: rgba(255, 59, 48, 0.1); border: 0.5px solid rgba(255, 59, 48, 0.22); color: var(--red);
+}
+.rc-delta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-size: 0.76rem; color: var(--text); font-weight: 600; margin-top: 4px; line-height: 1.35;
+}
+.rc-delta.skip { color: var(--text-3); font-weight: 500; }
+.rc-delta-src {
+  font-size: 0.65rem; font-weight: 600; padding: 1px 6px; border-radius: 980px;
+  background: rgba(0,0,0,0.04); border: 0.5px solid var(--hairline); color: var(--text-3);
+}
+.rc-dchips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rc-dchip {
+  font-size: 0.68rem; font-weight: 600; padding: 2px 7px; border-radius: 980px;
+  background: rgba(0,0,0,0.04); border: 0.5px solid var(--hairline); color: var(--text-2);
+}
+.rc-dchip.rc-d-up { color: var(--green); background: rgba(52, 199, 89, 0.1); border-color: rgba(52, 199, 89, 0.25); }
+.rc-dchip.rc-d-down { color: var(--red); background: rgba(255, 59, 48, 0.08); border-color: rgba(255, 59, 48, 0.22); }
+.rc-pos {
+  font-size: 0.7rem; font-weight: 600; margin-left: 6px; padding: 2px 8px; border-radius: 980px;
+  background: rgba(255, 159, 10, 0.1); border: 0.5px solid rgba(255, 159, 10, 0.22); color: var(--yellow-text, #9a6700);
+}
+.hero-card .rc-dual, .hero-card .rc-delta { margin-top: 6px; }
 .rc-kind {
   flex-shrink: 0; align-self: center;
   font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;

@@ -8,6 +8,14 @@ const { marked } = require('marked');
 const { sanitizeMarkdownHtml } = require('./web/md-sanitize.cjs');
 const { processArticleContent } = require('./web/article-collapse.cjs');
 const { homeCss, articleCss } = require('./web/theme-css.cjs');
+const {
+  listDualScores,
+  attachNeighborDeltas,
+  renderListDualHtml,
+  renderListDeltaHtml,
+  renderListPosHtml,
+  buildCardSearchBlob,
+} = require('./web/list-card-meta.cjs');
 
 /** macOS 风格窗口标题栏（装饰性 traffic lights） */
 function macTitlebar(label = '') {
@@ -1167,33 +1175,27 @@ function extractFileDate(filename) {
 // ===== 文件列表页（含搜索过滤排序） =====
 
 function renderIndex(fileInfos) {
-  const analyses = fileInfos.filter(i => i.kind === 'analysis');
+  const analysesRaw = fileInfos.filter(i => i.kind === 'analysis');
+  const analyses = attachNeighborDeltas(analysesRaw);
   const digests = fileInfos.filter(i => i.kind === 'digest');
   const others = fileInfos.filter(i => i.kind !== 'analysis' && i.kind !== 'digest');
 
   const latest = analyses[0] ?? null;
   const rest = analyses.slice(1);
 
-  // 量化评分小标签（列表页/英雄卡片复用）
-  const quantChip = (info) => {
-    if (!info.quantInfo?.quantScore) return '';
-    const q = info.quantInfo.quantScore;
-    const s = info.score ?? q;
-    const d = s - q;
-    const label = d > 5 ? `LLM偏高+${d}` : d < -5 ? `LLM偏低${d}` : d > 0 ? `略高+${d}` : d < 0 ? `略低${d}` : '一致';
-    const color = d > 5 ? '#c62828' : d < -5 ? '#1a7f37' : '#6b7280';
-    return `<span class="hero-quant-chip" style="color:${color}">🔢 量化 ${q} · ${label}</span>`;
-  };
+  const dualLine = (info) => renderListDualHtml(listDualScores(info), esc);
+  const deltaLine = (info) => renderListDeltaHtml(info.listDelta || info.dayDelta, esc);
+  const posChip = (info) => renderListPosHtml(info.positionRec, esc);
 
-  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'} ${latest.qualityGate && !latest.qualityGate.actionable ? 'hero-blocked' : ''} ${latest.dayDelta?.skipFineRead ? 'hero-skip' : ''}">
+  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'} ${latest.qualityGate && !latest.qualityGate.actionable ? 'hero-blocked' : ''} ${(latest.listDelta || latest.dayDelta)?.skipFineRead ? 'hero-skip' : ''}">
     <div class="hero-badge">最新研判 ${qualityDot(latest.qualityGate)}</div>
     <div class="hero-left">${scoreBadge(latest.score)}</div>
     <div class="hero-body">
-      <div class="hero-date">${esc(latest.dateLabel)} ${latest.qualityGate ? `<span class="hero-dq">${latest.qualityGate.emoji} ${latest.qualityGate.label}${latest.confidence != null ? ' · ' + latest.confidence + '%' : ''}</span>` : ''}</div>
-      ${latest.dayDelta ? `<div class="hero-delta${latest.dayDelta.skipFineRead ? ' skip' : ''}">📅 ${esc(latest.dayDelta.headline)}</div>` : ''}
+      <div class="hero-date">${esc(latest.dateLabel)} ${latest.qualityGate ? `<span class="hero-dq">${latest.qualityGate.emoji} ${latest.qualityGate.label}${latest.confidence != null ? ' · ' + latest.confidence + '%' : ''}</span>` : ''} ${posChip(latest)}</div>
+      ${dualLine(latest)}
+      ${deltaLine(latest)}
       ${latest.advice ? `<div class="hero-verdict">${latest.advice.emoji} ${esc(latest.advice.headline)}</div>` : '<div class="hero-title">黄金投资日报</div>'}
       ${latest.advice ? `<div class="hero-action">💡 ${esc(latest.advice.action)}</div>` : ''}
-      ${quantChip(latest)}
       ${latest.scenarios ? `<div class="hero-scenarios">${latest.scenarios.map(s => `<span class="sc-mini sc-${s.cls}">${s.icon}${s.probability}%</span>`).join('')}</div>` : ''}
       ${latest.calibration && (latest.calibration.sample == null || latest.calibration.sample < CALIBRATION_SAMPLE_WARN)
         ? `<div class="hero-sample-warn">⚠️ 校准样本不足${latest.calibration.sample != null ? `（${latest.calibration.sample}）` : ''}</div>` : ''}
@@ -1207,10 +1209,13 @@ function renderIndex(fileInfos) {
     const verdictHtml = info.qualityGate && !info.qualityGate.actionable
       ? `<div class="rc-verdict"><span class="verdict-chip" style="color:#6b7280;background:rgba(0,0,0,0.04);border-color:rgba(0,0,0,0.1)">🔴 数据不可用 · 勿据此加减仓</span></div>`
       : (info.advice ? `<div class="rc-verdict">${renderCardVerdict(info.score, info.direction)}</div>` : `<div class="rc-snippet muted">${esc(info.filename)}</div>`);
-    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(info.filename + ' ' + info.dateLabel + ' ' + (info.score ?? '') + ' ' + (info.advice?.label ?? '') + ' ' + (info.qualityGate?.label ?? ''))}">
+    const search = buildCardSearchBlob(info);
+    return `<a href="/${info.filename}" class="report-card dir-${info.direction || 'neutral'}" data-search="${esc(search)}" data-score="${info.score ?? ''}" data-quant="${listDualScores(info)?.quant ?? ''}">
       <div class="rc-score">${scoreBadge(info.score)}${qualityDot(info.qualityGate)}</div>
       <div class="rc-body">
-        <div class="rc-date">${info.dateLabel} ${info.confidence != null ? `<span class="rc-conf">置信 ${info.confidence}%</span>` : ''}</div>
+        <div class="rc-date">${info.dateLabel} ${info.confidence != null ? `<span class="rc-conf">置信 ${info.confidence}%</span>` : ''} ${posChip(info)}</div>
+        ${dualLine(info)}
+        ${deltaLine(info)}
         ${verdictHtml}
         <div class="rc-meta">${mtimeStr}</div>
       </div>
@@ -1286,7 +1291,7 @@ function renderIndex(fileInfos) {
       });
     } catch { /* ignore */ }
   }
-  const homePanels = `${renderDayDeltaPanel(latest?.dayDelta)}${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
+  const homePanels = `${renderDayDeltaPanel(latest?.listDelta || latest?.dayDelta)}${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
