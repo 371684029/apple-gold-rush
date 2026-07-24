@@ -23,6 +23,10 @@ export interface CalibrateOptions {
   detail: boolean;
   tearsheet: boolean;
   md: boolean;
+  /** 输出因子 Spearman IC */
+  ic: boolean;
+  /** Walk-forward 样本外 MAE 卫生检查 */
+  walkForward: boolean;
 }
 
 /** 周期摘要命令选项 */

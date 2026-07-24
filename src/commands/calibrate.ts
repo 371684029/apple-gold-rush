@@ -10,6 +10,8 @@ import {
   formatTearsheetMarkdown,
 } from '../utils/calibration-tearsheet.js';
 import { renderEquityCurveSvg } from '../utils/chart-svg.js';
+import { computeFactorIc, formatFactorIcConsole, formatFactorIcMarkdown } from '../utils/factor-ic.js';
+import { summarizeWalkForward, formatWalkForwardConsole, formatWalkForwardMarkdown } from '../utils/walk-forward.js';
 import { header, separator } from '../utils/format.js';
 import chalk from 'chalk';
 import type { CalibrateOptions } from '../types/config.js';
@@ -19,6 +21,8 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
 
   const db = getDb();
   const repo = new CalibrationRepo(db);
+  const pricesRepo = new GoldPricesRepo(db);
+  const reportsRepo = new ReportsRepo(db);
 
   // 自动回填
   const filled = repo.backfillPending();
@@ -32,8 +36,31 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
 
   let tearsheet = null as ReturnType<typeof buildCalibrationTearsheet> | null;
   if (options.tearsheet || options.md) {
-    const reports = new ReportsRepo(db).getRecent(options.days);
-    tearsheet = buildCalibrationTearsheet(reports, new GoldPricesRepo(db));
+    const reports = reportsRepo.getRecent(options.days);
+    tearsheet = buildCalibrationTearsheet(reports, pricesRepo);
+  }
+
+  let factorIc = null as ReturnType<typeof computeFactorIc> | null;
+  if (options.ic || options.md) {
+    factorIc = computeFactorIc(reportsRepo.getRecent(Math.max(options.days, 90)), pricesRepo);
+  }
+
+  let walkForward = null as ReturnType<typeof summarizeWalkForward> | null;
+  if (options.walkForward || options.md) {
+    const rows = [...reportsRepo.getRecent(Math.max(options.days, 60))]
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (rows.length >= 10) {
+      const mid = Math.floor(rows.length / 2);
+      const trainFrom = rows[0].date;
+      const trainTo = rows[mid - 1].date;
+      const testFrom = rows[mid].date;
+      const testTo = rows[rows.length - 1].date;
+      const trainCal = repo.computeCalibrationInRange(trainFrom, trainTo);
+      const testCal = repo.computeCalibrationInRange(testFrom, testTo);
+      walkForward = summarizeWalkForward(trainCal, testCal);
+    } else {
+      console.log(chalk.yellow('\n  🚶 Walk-forward：报告不足 10 条，跳过'));
+    }
   }
 
   // 输出
@@ -151,23 +178,35 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
     console.log(formatTearsheetConsole(tearsheet));
   }
 
-  if (tearsheet && options.md) {
+  if (factorIc && options.ic) {
+    console.log('\n' + formatFactorIcConsole(factorIc));
+  }
+
+  if (walkForward && options.walkForward) {
+    console.log('\n' + formatWalkForwardConsole(walkForward));
+  }
+
+  if (options.md && (tearsheet || factorIc || walkForward)) {
     const fs = await import('node:fs');
     const docsDir = 'docs';
     if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
     const periodLabel = `过去${report.period.days}天 (${report.period.from} ~ ${report.period.to})`;
-    const content = formatTearsheetMarkdown(tearsheet, periodLabel);
+    const parts: string[] = [];
+    if (tearsheet) parts.push(formatTearsheetMarkdown(tearsheet, periodLabel));
+    if (factorIc) parts.push(formatFactorIcMarkdown(factorIc));
+    if (walkForward) parts.push(formatWalkForwardMarkdown(walkForward));
+    const content = parts.join('\n');
     const dated = `${docsDir}/goldrush-calibration-${new Date().toISOString().slice(0, 10)}.md`;
     const latest = `${docsDir}/goldrush-calibration-latest.md`;
     fs.writeFileSync(dated, content, 'utf-8');
     fs.writeFileSync(latest, content, 'utf-8');
-    if (tearsheet.equityCurve.length >= 2) {
+    if (tearsheet?.equityCurve && tearsheet.equityCurve.length >= 2) {
       const svg = renderEquityCurveSvg(tearsheet.equityCurve);
       const svgLatest = `${docsDir}/goldrush-calibration-equity-latest.svg`;
       fs.writeFileSync(svgLatest, svg, 'utf-8');
       console.log(`  📈 权益曲线 SVG: ${svgLatest}`);
     }
-    console.log(`\n  📝 Tearsheet 已写入 ${dated}`);
+    console.log(`\n  📝 校准导出已写入 ${dated}`);
   }
 
   console.log(separator('═', 55));

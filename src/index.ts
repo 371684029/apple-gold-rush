@@ -97,6 +97,8 @@ program
   .option('--detail', '按评分区间细分校准')
   .option('--tearsheet', '输出区间收益分布与模拟权益曲线')
   .option('--md', '导出 Tearsheet 到 docs/')
+  .option('--ic', '输出量化因子 Spearman IC（研究卫生，不自动改权重）')
+  .option('--walk-forward', 'Walk-forward：前半训练 / 后半样本外 MAE')
   .action(async (opts) => {
     try {
       await calibrateCommand({
@@ -104,6 +106,8 @@ program
         detail: opts.detail ?? false,
         tearsheet: opts.tearsheet ?? false,
         md: opts.md ?? false,
+        ic: opts.ic ?? false,
+        walkForward: opts.walkForward ?? false,
       });
     } finally {
       closeDb();

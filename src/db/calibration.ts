@@ -140,6 +140,26 @@ export class CalibrationRepo {
   computeCalibration(days: number, T: number = 5): CalibrationReport {
     const allRecent = this.reports.getRecent(days);
     const reports = this.eligibleReports(days);
+    const report = this.buildLlmCalibration(reports, days, T);
+    const excluded = allRecent.length - reports.length;
+    if (excluded > 0) {
+      report.recommendations.push(`已排除 ${excluded} 条样本（数据红档或无效金价），不计入 LLM 校准`);
+    }
+    return report;
+  }
+
+  /** 按日期闭区间做 LLM 校准（walk-forward 用） */
+  computeCalibrationInRange(from: string, to: string, T: number = 5): CalibrationReport {
+    const days = 800;
+    const reports = this.eligibleReports(days).filter(r => r.date >= from && r.date <= to);
+    const span = Math.max(
+      1,
+      Math.ceil((Date.parse(to) - Date.parse(from)) / (24 * 3600 * 1000)) || 1,
+    );
+    return this.buildLlmCalibration(reports, span, T);
+  }
+
+  private buildLlmCalibration(reports: AnalysisReportRow[], days: number, T: number): CalibrationReport {
     const dateRange = reports.length > 0
       ? { from: reports[reports.length - 1].date, to: reports[0].date }
       : { from: 'N/A', to: 'N/A' };
@@ -192,15 +212,12 @@ export class CalibrationRepo {
       });
     }
 
-    // 计算整体偏差
     const overallBias = buckets.length > 0
       ? buckets.reduce((sum, b) => sum + (b.systematicBias === 'optimistic' ? b.calibrationError : b.systematicBias === 'pessimistic' ? -b.calibrationError : 0), 0) / buckets.length
       : 0;
 
-    // 计算风险预警质量
     const riskAlertQuality = this.computeRiskAlertQuality(reports, T);
 
-    // 生成建议
     const recommendations: string[] = [];
     const optimisticBuckets = buckets.filter(b => b.systematicBias === 'optimistic' && b.calibrationError > 10);
     if (optimisticBuckets.length > 0) {
@@ -211,11 +228,6 @@ export class CalibrationRepo {
     }
     if (recommendations.length === 0) {
       recommendations.push('校准状态良好，继续保持');
-    }
-
-    const excluded = allRecent.length - reports.length;
-    if (excluded > 0) {
-      recommendations.push(`已排除 ${excluded} 条样本（数据红档或无效金价），不计入 LLM 校准`);
     }
 
     return {

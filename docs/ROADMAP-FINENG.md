@@ -237,10 +237,10 @@ target = smooth(target, prev, maxΔ=10)  # 日度仓位别跳 30%
 |----|------|------|------|
 | A 风险约束仓位 v2 | ✅ 已落地 | 2026-07-16 | 波动缩放+回撤+日平滑±10；Web 风险角标 |
 | B 纸面权益 / MaxDD | ⬜ 未开始 | — | |
-| C Regime 命中 Web | ⬜ 未开始 | — | 字段部分已有 |
+| C Regime 命中 Web | 🟡 部分 | 2026-07-24 | MD「同阶段校准」行；Web 仍可加强 |
 | D 新鲜度 SLA | ⬜ 未开始 | — | |
-| E 因子 IC | ⬜ 未开始 | — | 需 quant 样本积累 |
-| F Walk-forward | ⬜ 未开始 | — | |
+| E 因子 IC | ✅ 已落地 | 2026-07-24 | `calibrate --ic`；Spearman；失效仅展示不自动改权 |
+| F Walk-forward | ✅ 已落地 | 2026-07-24 | `calibrate --walk-forward`；训练/测试 MAE |
 | G 情景校准 | ⬜ 未开始 | — | |
 | H Snippet 对账 | ⬜ 未开始 | — | 存档已有 |
 | I 金银比等 | ⬜ 未开始 | — | P2 |
@@ -257,3 +257,4 @@ target = smooth(target, prev, maxΔ=10)  # 日度仓位别跳 30%
 |------|------|
 | 2026-07-16 | 初稿：金融工程 + 业界借鉴 + P0/P1/P2 包与反模式 |
 | 2026-07-16 | 包 A 落地：风险约束仓位 v2（波动/回撤/日平滑 + Web 角标） |
+| 2026-07-24 | 较昨日 Δ + 驱动归因（analysis/MD/Web）；`calibrate --ic` / `--walk-forward`；Regime 同阶段校准 MD 行 |

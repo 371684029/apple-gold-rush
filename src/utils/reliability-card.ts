@@ -6,6 +6,7 @@ import type { DataQualityGate } from './data-quality-gate.js';
 import type { DualScoreVerdict } from './dual-score.js';
 import type { ConsistencyCheck } from './plain-advice.js';
 import type { PositionRecommendation } from './position-recommend.js';
+import type { DayDelta } from './day-delta.js';
 
 export type ReliabilityTier = 'high' | 'medium' | 'low' | 'blocked';
 
@@ -23,8 +24,8 @@ export interface ReliabilityCard {
   warnings: string[];
   /** 三行 TL;DR */
   tldr: {
-    line1: string; // 研判+区间
-    line2: string; // 仓位
+    line1: string; // 较昨日 + 研判区间
+    line2: string; // 仓位 + 驱动
     line3: string; // 可信度+注意
   };
   summary: string;
@@ -43,6 +44,8 @@ export interface ReliabilityCardInput {
   /** 历史 5 日 LLM 方向命中率 0–1（可选，有则进因子） */
   trackHitRate?: number | null;
   trackSampleSize?: number | null;
+  /** 较昨日差分（抬高日报信息有效性） */
+  dayDelta?: Pick<DayDelta, 'skipFineRead' | 'headline' | 'scoreDelta' | 'positionDelta' | 'driverSummary' | 'trackHint'> | null;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -195,7 +198,9 @@ export function buildReliabilityCard(input: ReliabilityCardInput): ReliabilityCa
   {
     const w = 5;
     weightSum += w;
-    const hr = input.trackHitRate;
+    // 兼容 0–1 比例或 0–100 百分数（prediction-track 输出为百分数）
+    const hrRaw = input.trackHitRate;
+    const hr = hrRaw == null ? null : (hrRaw > 1 ? hrRaw / 100 : hrRaw);
     const tn = input.trackSampleSize ?? 0;
     let p = 2;
     let ok = true;
@@ -253,14 +258,35 @@ export function buildReliabilityCard(input: ReliabilityCardInput): ReliabilityCa
           : '可信度偏低';
 
   const pos = input.position;
+  const dd = input.dayDelta;
   const posLine = pos
-    ? `${pos.emoji} 建议仓位 ${pos.targetPct}%（${pos.label}）· ${pos.headline}`
+    ? `${pos.emoji} 建议仓位 ${pos.targetPct}%（${pos.label}）${
+        dd?.positionDelta != null ? ` · 较昨日${dd.positionDelta > 0 ? '+' : ''}${dd.positionDelta}点` : ''
+      }`
     : '仓位：见报告仓位节或按纪律定投';
 
+  const driverBit = dd?.driverSummary
+    ? dd.driverSummary.slice(0, 72)
+    : '';
+
+  let line1: string;
+  if (dd?.skipFineRead) {
+    line1 = `📅 与昨日持平，可跳过细读 · 研判 **${scoreBand.low}–${scoreBand.high}**/100 · ${dirLabel(input.direction)}`;
+  } else if (dd && (dd.scoreDelta != null || dd.positionDelta != null)) {
+    const bits: string[] = [];
+    if (dd.scoreDelta != null) bits.push(`分${dd.scoreDelta > 0 ? '+' : ''}${dd.scoreDelta}`);
+    if (dd.positionDelta != null) bits.push(`仓${dd.positionDelta > 0 ? '+' : ''}${dd.positionDelta}点`);
+    line1 = `📅 较昨日 ${bits.join(' / ')} · 研判 **${scoreBand.low}–${scoreBand.high}**/100 · ${dirLabel(input.direction)}`;
+  } else {
+    line1 = `研判 **${scoreBand.low}–${scoreBand.high}**/100（中心 ${center}）· ${dirLabel(input.direction)}`;
+  }
+
   const tldr = {
-    line1: `研判 **${scoreBand.low}–${scoreBand.high}**/100（中心 ${center}）· ${dirLabel(input.direction)}`,
-    line2: posLine,
-    line3: `${emoji} ${label} ${score}/100${warnings[0] ? ` · 注意：${warnings[0]}` : ''}`,
+    line1,
+    line2: driverBit ? `${posLine} · 驱动：${driverBit}` : posLine,
+    line3: `${emoji} ${label} ${score}/100${
+      dd?.trackHint ? ` · ${dd.trackHint}` : warnings[0] ? ` · 注意：${warnings[0]}` : ''
+    }`,
   };
 
   const summary = `${emoji} ${label} ${score}/100 · 展示区间 ${scoreBand.low}–${scoreBand.high} · ${factors.filter(f => !f.ok).length} 项需关注`;

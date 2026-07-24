@@ -46,7 +46,8 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 9. **仓位推荐 + 预测对错**（`position-recommend.ts` / `prediction-track.ts`）：相对「计划黄金仓」0–100%（非杠杆）；门禁红 ≤35%、双分冲突 ≤50%；每次 analysis 刷新 `docs/goldrush-stats-latest.json`（5 日方向命中、分桶、明细）。完整说明：`docs/POSITION-AND-TRACK.md`。Web：`server.cjs` 首页/文章页面板。
 10. **可信度一览**（`reliability-card.ts`）：门禁+双分+一致+校准+滚动命中 → 0–100 操作可信度 + 评分区间半宽 + 三行 TL;DR；**不是**预测准确率承诺。搜索原文存档 `docs/search-raw/`（`search-raw-archive.ts`）。说明：`docs/RELIABILITY.md`。
 11. **统一操作建议**（`resolveOperationalAdvice`）：优先级 门禁红 → 双分分歧（有仓位则仍给具体%） → 仓位推荐 → 分数人话；CLI/MD/Web 不得各写一套互相矛盾的文案。Smart 路径也须输出仓位与可信度。
-12. **后续规划入口**：**`docs/ROADMAP-FINENG.md`**（金融工程/业界借鉴：风险约束仓位 v2、纸面 MaxDD、Regime Web、因子 IC、反模式）。新功能先落 **Signals → Gates → Portfolio → Explain** 哪一层；勿以点位准确率为 KPI、勿冲突时抬单侧权重。
+12. **较昨日 Δ + 研究卫生**（`day-delta.ts` / `factor-ic.ts` / `walk-forward.ts`）：日报强调相对昨日差分与驱动归因；持平可跳过细读；`calibrate --ic` / `--walk-forward`。说明：`docs/DAILY-DELTA.md`。
+13. **后续规划入口**：**`docs/ROADMAP-FINENG.md`**（金融工程/业界借鉴：风险约束仓位 v2、纸面 MaxDD、Regime Web、因子 IC、反模式）。新功能先落 **Signals → Gates → Portfolio → Explain** 哪一层；勿以点位准确率为 KPI、勿冲突时抬单侧权重。
 
 ### 出站网络现状（生产机实测，会变）
 | 源 | 状态 | 用途 |

@@ -140,12 +140,12 @@ button:focus-visible, .sort-btn:focus-visible, .collapse-btn:focus-visible {
 .pos-panel, .pred-stats-panel, .rel-panel, .dual-banner, .dq-banner,
 .quick-read-card, .pred-hero, .flow-hero, .hero-card, .stat-card,
 .report-card, .sc-card, .ps-card, .md-section, .pred-trust,
-.pred-action-box, .pred-secondary, .sample-warn, .sidebar-more {
+.pred-action-box, .pred-secondary, .sample-warn, .sidebar-more, .dd-panel {
   transition: transform 0.22s var(--ease), box-shadow 0.22s var(--ease),
     background 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 
-.pos-panel, .pred-stats-panel, .rel-panel {
+.pos-panel, .pred-stats-panel, .rel-panel, .dd-panel {
   margin: 0 0 14px;
   padding: 18px 20px;
   border-radius: var(--radius-md);
@@ -159,6 +159,36 @@ button:focus-visible, .sort-btn:focus-visible, .collapse-btn:focus-visible {
 .rel-panel.rel-high { border-left-color: var(--green); }
 .rel-panel.rel-low { border-left-color: var(--yellow); }
 .rel-panel.rel-blocked { border-left-color: var(--red); }
+
+.dd-panel { border-left: 3px solid var(--text-3); }
+.dd-panel.dd-skip { border-left-color: var(--text-3); opacity: 0.95; }
+.dd-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.dd-title { font-weight: 600; font-size: 0.95rem; color: var(--text); letter-spacing: -0.02em; }
+.dd-sub { font-size: 0.72rem; color: var(--text-3); margin-top: 2px; }
+.dd-badge {
+  margin-left: auto; font-size: 0.72rem; font-weight: 600;
+  padding: 4px 10px; border-radius: 980px;
+  background: rgba(0,0,0,0.04); border: 0.5px solid var(--hairline); color: var(--text-2);
+}
+.dd-badge-move {
+  background: rgba(10, 132, 255, 0.1); border-color: rgba(10, 132, 255, 0.25); color: #0a84ff;
+}
+.dd-headline { font-size: 0.9rem; font-weight: 600; color: var(--text); line-height: 1.4; margin-bottom: 8px; }
+.dd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.dd-chip {
+  font-size: 0.72rem; font-weight: 600; padding: 4px 10px; border-radius: 980px;
+  background: rgba(0,0,0,0.04); border: 0.5px solid var(--hairline); color: var(--text-2);
+}
+.dd-chip.dd-up { color: var(--green); background: rgba(52, 199, 89, 0.1); border-color: rgba(52, 199, 89, 0.25); }
+.dd-chip.dd-down { color: var(--red); background: rgba(255, 59, 48, 0.08); border-color: rgba(255, 59, 48, 0.22); }
+.dd-driver, .dd-track { font-size: 0.8rem; color: var(--text-2); line-height: 1.45; margin-top: 4px; }
+.dd-track { color: var(--text-3); }
+
+.hero-delta {
+  font-size: 0.82rem; font-weight: 600; color: var(--text); margin: 4px 0 6px; line-height: 1.35;
+}
+.hero-delta.skip { color: var(--text-3); font-weight: 500; }
+.hero-card.hero-skip { opacity: 0.96; }
 
 .pos-head, .rel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .pos-emoji { font-size: 1.5rem; }
@@ -572,11 +602,13 @@ header.home-hero .subtitle {
 }
 .home-panels .pos-panel,
 .home-panels .pred-stats-panel,
-.home-panels .rel-panel {
+.home-panels .rel-panel,
+.home-panels .dd-panel {
   margin-left: 14px;
   margin-right: 14px;
   background: rgba(255, 255, 255, 0.55);
 }
+.home-panels .dd-panel,
 .home-panels .rel-panel { margin-top: 2px; }
 .home-panels .pred-stats-panel { margin-bottom: 14px; }
 .report-card.hidden { display: none; }

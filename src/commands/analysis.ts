@@ -43,6 +43,11 @@ import {
   formatReliabilityConsole,
   type ReliabilityCard,
 } from '../utils/reliability-card.js';
+import {
+  buildDayDelta,
+  formatDayDeltaConsole,
+  type DayDelta,
+} from '../utils/day-delta.js';
 import type { OrchestrateOptions } from '../agents/orchestrator.js';
 import { todayDate, formatNow } from '../utils/time.js';
 import type { Horizon } from '../types/config.js';
@@ -431,6 +436,41 @@ export async function analysisCommand(options: {
     console.warn('  ⚠️ 预测对错统计失败:', err instanceof Error ? err.message : err);
   }
 
+  // 较昨日差分 + 驱动归因
+  let previousReport: GoldAnalysisReport | null = null;
+  let prevDate = '';
+  try {
+    for (const row of reportsRepo.getRecent(21)) {
+      if (row.date >= today) continue;
+      previousReport = parseReportJson(row.reportJson);
+      if (previousReport) {
+        prevDate = row.date;
+        break;
+      }
+    }
+  } catch { /* ignore */ }
+  const currPriceRow = priceRepo.getByDate(today) ?? priceHistory[0] ?? null;
+  const prevPriceRow = prevDate ? (priceRepo.getByDate(prevDate) ?? null) : null;
+  const prevFlow = previousReport?.overall?.quantFactors?.flow?.normalizedScore ?? null;
+  const currFlow = flowSignal?.overallScore
+    ?? report.overall.quantFactors?.flow?.normalizedScore
+    ?? null;
+  const dayDelta = buildDayDelta({
+    prevDate,
+    currDate: today,
+    previous: previousReport,
+    current: report,
+    currPositionPct: positionRec.targetPct,
+    dual: dualVerdict,
+    prevPrice: prevPriceRow,
+    currPrice: currPriceRow,
+    prevFlowScore: prevFlow,
+    currFlowScore: currFlow,
+    llmHitRate: predictionTrack?.llm.hitRate ?? null,
+    quantHitRate: predictionTrack?.quant.hitRate ?? null,
+  });
+  console.log(formatDayDeltaConsole(dayDelta));
+
   // 可信度一览：门禁+双分+一致+校准+滚动命中 → 评分区间 + TL;DR
   const calCtx = report.overall.calibration;
   const reliabilityCard = buildReliabilityCard({
@@ -445,6 +485,7 @@ export async function analysisCommand(options: {
     position: positionRec,
     trackHitRate: predictionTrack?.llm.hitRate ?? null,
     trackSampleSize: predictionTrack?.llm.total ?? null,
+    dayDelta,
   });
   console.log(formatReliabilityConsole(reliabilityCard));
 
@@ -484,6 +525,7 @@ export async function analysisCommand(options: {
     predictionTrack: predictionTrack ?? undefined,
     reliabilityCard,
     consistency: dimConsistency,
+    dayDelta,
   };
 
   // 输出报告
@@ -633,6 +675,24 @@ async function runSmartAnalysis(
     console.warn('  ⚠️ Smart 预测对错统计失败:', err instanceof Error ? err.message : err);
   }
 
+  const currPriceRow = priceRepo.getByDate(today) ?? null;
+  const prevPriceRow = priceRepo.getByDate(prevRow.date) ?? null;
+  const dayDelta = buildDayDelta({
+    prevDate: prevRow.date,
+    currDate: today,
+    previous,
+    current: report,
+    currPositionPct: positionRec.targetPct,
+    dual: dualVerdict,
+    prevPrice: prevPriceRow,
+    currPrice: currPriceRow,
+    prevFlowScore: previous.overall?.quantFactors?.flow?.normalizedScore ?? null,
+    currFlowScore: report.overall.quantFactors?.flow?.normalizedScore ?? null,
+    llmHitRate: predictionTrack?.llm.hitRate ?? null,
+    quantHitRate: predictionTrack?.quant.hitRate ?? null,
+  });
+  console.log(formatDayDeltaConsole(dayDelta));
+
   const calCtx = report.overall.calibration;
   const reliabilityCard = buildReliabilityCard({
     llmScore: report.overall.score,
@@ -646,6 +706,7 @@ async function runSmartAnalysis(
     position: positionRec,
     trackHitRate: predictionTrack?.llm.hitRate ?? null,
     trackSampleSize: predictionTrack?.llm.total ?? null,
+    dayDelta,
   });
 
   const reportExtras = {
@@ -659,6 +720,7 @@ async function runSmartAnalysis(
     predictionTrack: predictionTrack ?? undefined,
     reliabilityCard,
     consistency: dimConsistency,
+    dayDelta,
   };
 
   reportsRepo.insert({
@@ -765,12 +827,16 @@ function printReport(
     positionRec?: PositionRecommendation;
     predictionTrack?: PredictionTrackStats;
     reliabilityCard?: ReliabilityCard;
+    dayDelta?: DayDelta;
   },
 ): void {
   const { overall, technical, fundamental, sentiment, fund: fundAnalysis, rebuttal, tailRisks } = report;
 
   console.log(header('🎯 GoldRush 综合分析报告', formatNow()));
 
+  if (extras?.dayDelta) {
+    console.log('\n' + formatDayDeltaConsole(extras.dayDelta));
+  }
   if (extras?.reliabilityCard) {
     console.log('\n' + formatReliabilityConsole(extras.reliabilityCard));
   }

@@ -27,6 +27,41 @@ describe('buildReliabilityCard', () => {
     expect(c.tldr.line2).toContain('65%');
   });
 
+  it('较昨日持平时 TL;DR 提示可跳过细读', () => {
+    const c = buildReliabilityCard({
+      llmScore: 55,
+      direction: 'neutral',
+      quantScore: 54,
+      dataGate: { tier: 'green', actionable: true, overallConfidence: 72, banners: [] },
+      dual: { alignment: 'aligned', delta: 1, actionPolicy: 'show_both', sameDirection: true },
+      consistency: { level: 'strong', summary: '4/4', agreeCount: 4, totalCount: 4 },
+      calibrationSampleSize: 15,
+      position: { targetPct: 55, label: '标配', emoji: '🟡', headline: '维持', tilt: 'hold' },
+      dayDelta: {
+        skipFineRead: true,
+        headline: '与昨日基本持平，可跳过细读',
+        scoreDelta: 1,
+        positionDelta: 0,
+        driverSummary: '宏观驱动较昨日无明显数字变化',
+        trackHint: null,
+      },
+    });
+    expect(c.tldr.line1).toMatch(/可跳过细读/);
+  });
+
+  it('兼容百分数形式的 trackHitRate', () => {
+    const c = buildReliabilityCard({
+      llmScore: 60,
+      dataGate: { tier: 'green', actionable: true, overallConfidence: 70, banners: [] },
+      dual: { alignment: 'aligned', delta: 3, actionPolicy: 'show_both', sameDirection: true },
+      consistency: { level: 'moderate', summary: '3/4', agreeCount: 3, totalCount: 4 },
+      calibrationSampleSize: 12,
+      trackHitRate: 65,
+      trackSampleSize: 20,
+    });
+    expect(c.factors.find(f => f.name === '滚动命中')?.detail).toMatch(/65%/);
+  });
+
   it('红档门禁 → blocked 且宽区间', () => {
     const c = buildReliabilityCard({
       llmScore: 55,

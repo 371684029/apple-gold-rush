@@ -30,6 +30,8 @@ import type { ReliabilityCard } from './reliability-card.js';
 import { formatReliabilityMarkdown } from './reliability-card.js';
 import type { ConsistencyCheck } from './plain-advice.js';
 import { consistencyEmoji, resolveOperationalAdvice } from './plain-advice.js';
+import type { DayDelta } from './day-delta.js';
+import { formatDayDeltaMarkdown } from './day-delta.js';
 
 export interface ReportMarkdownExtras {
   macroRegime?: MacroRegime;
@@ -43,6 +45,7 @@ export interface ReportMarkdownExtras {
   predictionTrack?: PredictionTrackStats;
   reliabilityCard?: ReliabilityCard;
   consistency?: ConsistencyCheck;
+  dayDelta?: DayDelta;
 }
 
 function dirText(d: string | undefined): string {
@@ -87,6 +90,11 @@ export function formatReportMarkdown(
     lines.push(formatReliabilityMarkdown(rel));
   }
 
+  const dayDelta = extras?.dayDelta;
+  if (dayDelta) {
+    lines.push(formatDayDeltaMarkdown(dayDelta));
+  }
+
   const dq = extras?.dataQualityGate;
   if (dq) {
     lines.push(formatDataQualityGateMarkdown(dq));
@@ -126,6 +134,14 @@ export function formatReportMarkdown(
     lines.push(`- ${macro.description}`);
     if (macro.signals.length) {
       lines.push(`- 依据：${macro.signals.join('；')}`);
+    }
+    const cal = overall?.calibration;
+    if (cal?.regimeTag && cal.regimeHistoricalAccuracy != null) {
+      const pct = Math.round(cal.regimeHistoricalAccuracy * 100);
+      const n = cal.regimeSampleSize ?? 0;
+      lines.push(
+        `- **同阶段校准**：\`${cal.regimeTag}\` 历史 5 日涨概率 **${pct}%**（样本 ${n}${cal.regimeSystematicBias ? `，${cal.regimeSystematicBias}` : ''}）`,
+      );
     }
     lines.push('');
   }

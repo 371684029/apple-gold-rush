@@ -252,6 +252,73 @@ function enrichPositionHeadline(pos, dual) {
   return { ...pos, headline: conflictHeadlineFromDual(dual, pos) };
 }
 
+/**
+ * 从 MD「较昨日一览」提取差分摘要（首页/文章页首屏）
+ */
+function extractDayDelta(md) {
+  const sec = md.match(/##\s*[📅\s]*较昨日一览([\s\S]*?)(?=\n##\s|$)/);
+  if (!sec) return null;
+  const body = sec[1];
+  const headlineM = body.match(/>\s*\*{0,2}(.+?)\*{0,2}\s*$/m);
+  const headline = headlineM ? headlineM[1].replace(/\*\*/g, '').trim() : '';
+  const skipFineRead = /可跳过细读|基本持平/.test(headline) || /可跳过细读/.test(body);
+  const scoreM = body.match(/\|\s*综合分\s*\|\s*([-\d.]+)\s*\|\s*([-\d.]+)\s*\|\s*([+\-±\d.]+)/);
+  const quantM = body.match(/\|\s*量化分\s*\|\s*([-\d.]+)\s*\|\s*([-\d.]+)\s*\|\s*([+\-±\d.]+)/);
+  const posM = body.match(/\|\s*建议仓位\s*\|\s*([-\d.]+)%?\s*\|\s*([-\d.]+)%?\s*\|\s*([+\-±\d.]+)/);
+  const driverM = body.match(/\*\*驱动归因\*\*[：:]\s*(.+)/);
+  const trackM = body.match(/\*\*校准叙事\*\*[：:]\s*(.+)/);
+  const parseDelta = (s) => {
+    if (s == null) return null;
+    const t = String(s).replace(/[±点%]/g, '').trim();
+    if (t === '' || t === '0') return 0;
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    headline: headline || '较昨日一览',
+    skipFineRead,
+    scoreDelta: scoreM ? parseDelta(scoreM[3]) : null,
+    quantDelta: quantM ? parseDelta(quantM[3]) : null,
+    positionDelta: posM ? parseDelta(posM[3]) : null,
+    prevScore: scoreM ? parseFloat(scoreM[1]) : null,
+    currScore: scoreM ? parseFloat(scoreM[2]) : null,
+    prevPositionPct: posM ? parseFloat(posM[1]) : null,
+    currPositionPct: posM ? parseFloat(posM[2]) : null,
+    driverSummary: driverM ? driverM[1].trim() : '',
+    trackHint: trackM ? trackM[1].trim() : '',
+  };
+}
+
+/** 较昨日差分面板 */
+function renderDayDeltaPanel(dd) {
+  if (!dd) return '';
+  const skipClass = dd.skipFineRead ? ' dd-skip' : '';
+  const chip = (label, delta, unit = '') => {
+    if (delta == null) return '';
+    const sign = delta > 0 ? '+' : delta === 0 ? '±' : '';
+    const tone = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+    return `<span class="dd-chip dd-${tone}">${label} ${sign}${delta}${unit}</span>`;
+  };
+  const chips = [
+    chip('综合分', dd.scoreDelta),
+    chip('量化分', dd.quantDelta),
+    chip('仓位', dd.positionDelta, '点'),
+  ].filter(Boolean).join('');
+  return `<div class="dd-panel${skipClass}" role="region" aria-label="较昨日一览">
+    <div class="dd-head">
+      <div>
+        <div class="dd-title">📅 较昨日一览</div>
+        <div class="dd-sub">${dd.skipFineRead ? '与昨日差异很小 · 可跳过细读' : '相对上一份日报的变化'}</div>
+      </div>
+      ${dd.skipFineRead ? '<div class="dd-badge">可跳过细读</div>' : '<div class="dd-badge dd-badge-move">有变化</div>'}
+    </div>
+    <div class="dd-headline">${esc(dd.headline)}</div>
+    ${chips ? `<div class="dd-chips">${chips}</div>` : ''}
+    ${dd.driverSummary ? `<div class="dd-driver">驱动：${esc(dd.driverSummary)}</div>` : ''}
+    ${dd.trackHint ? `<div class="dd-track">${esc(dd.trackHint)}</div>` : ''}
+  </div>`;
+}
+
 /** 读取 docs/goldrush-stats-latest.json */
 function loadPredictionStats() {
   try {
@@ -853,6 +920,8 @@ function stripDashboardDuplicates(md) {
   md = stripSection('历史预测对错');
   md = stripSection('🛡️ 可信度一览');
   md = stripSection('可信度一览');
+  md = stripSection('📅 较昨日一览');
+  md = stripSection('较昨日一览');
   return md;
 }
 
@@ -947,8 +1016,9 @@ function renderPredictionDashboard(meta) {
     ? `<div class="pred-score-band">区间 ${rel.scoreBand.low}–${rel.scoreBand.high}</div>`
     : '';
 
-  // 首屏三块：可信度 · 分数/操作 · 仓位+命中；门禁/双分/情景默认折叠
+  // 首屏：较昨日差分 · 可信度 · 分数/操作 · 仓位+命中；门禁/双分/情景默认折叠
   return `<section class="pred-dashboard" aria-label="预测结论">
+    ${renderDayDeltaPanel(meta.dayDelta)}
     ${renderReliabilityPanel(rel)}
     ${renderSampleWarn(calibration)}
     <div class="pred-hero ${qualityGate && !qualityGate.actionable ? 'pred-hero-blocked' : ''}" style="--pred-color:${advice.color}">
@@ -1072,6 +1142,7 @@ function getFileInfos(files) {
       scenarios: extractScenarios(md),
       strategies: extractStrategies(md),
       advice: resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec),
+      dayDelta: extractDayDelta(md),
     };
   });
 }
@@ -1114,11 +1185,12 @@ function renderIndex(fileInfos) {
     return `<span class="hero-quant-chip" style="color:${color}">🔢 量化 ${q} · ${label}</span>`;
   };
 
-  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'} ${latest.qualityGate && !latest.qualityGate.actionable ? 'hero-blocked' : ''}">
+  const heroHtml = latest ? `<a href="/${latest.filename}" class="hero-card dir-${latest.direction || 'neutral'} ${latest.qualityGate && !latest.qualityGate.actionable ? 'hero-blocked' : ''} ${latest.dayDelta?.skipFineRead ? 'hero-skip' : ''}">
     <div class="hero-badge">最新研判 ${qualityDot(latest.qualityGate)}</div>
     <div class="hero-left">${scoreBadge(latest.score)}</div>
     <div class="hero-body">
       <div class="hero-date">${esc(latest.dateLabel)} ${latest.qualityGate ? `<span class="hero-dq">${latest.qualityGate.emoji} ${latest.qualityGate.label}${latest.confidence != null ? ' · ' + latest.confidence + '%' : ''}</span>` : ''}</div>
+      ${latest.dayDelta ? `<div class="hero-delta${latest.dayDelta.skipFineRead ? ' skip' : ''}">📅 ${esc(latest.dayDelta.headline)}</div>` : ''}
       ${latest.advice ? `<div class="hero-verdict">${latest.advice.emoji} ${esc(latest.advice.headline)}</div>` : '<div class="hero-title">黄金投资日报</div>'}
       ${latest.advice ? `<div class="hero-action">💡 ${esc(latest.advice.action)}</div>` : ''}
       ${quantChip(latest)}
@@ -1214,7 +1286,7 @@ function renderIndex(fileInfos) {
       });
     } catch { /* ignore */ }
   }
-  const homePanels = `${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
+  const homePanels = `${renderDayDeltaPanel(latest?.dayDelta)}${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1328,6 +1400,7 @@ function renderArticle(mdFilename, rawMarkdown) {
   const quantInfo = extractQuantScore(rawMarkdown);
   const positionRec = enrichPositionHeadline(extractPositionRecommend(rawMarkdown), dualScore);
   const predictionStats = loadPredictionStats();
+  const dayDelta = extractDayDelta(rawMarkdown);
   const reliability = extractReliabilityCard(rawMarkdown, {
     score: scoreInfo?.score,
     qualityGate,
@@ -1347,7 +1420,7 @@ function renderArticle(mdFilename, rawMarkdown) {
 
   const dashboardHtml = kind === 'analysis' ? renderPredictionDashboard({
     scoreInfo, advice, confidence, calibration, scenarios, strategies, similarSummary, macro, quantInfo, qualityGate, dualScore,
-    positionRec, predictionStats, reliability,
+    positionRec, predictionStats, reliability, dayDelta,
   }) : '';
 
   const displayMd = kind === 'analysis' ? stripDashboardDuplicates(rawMarkdown) : rawMarkdown;

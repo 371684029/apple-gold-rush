@@ -72,6 +72,7 @@ describe('formatReportMarkdown', () => {
     const md = formatReportMarkdown(buildReport(), 'all', {
       positionRec: {
         targetPct: 55,
+        rawTargetPct: 55,
         coreSharePct: 75,
         satelliteSharePct: 25,
         label: '标配',
@@ -81,6 +82,16 @@ describe('formatReportMarkdown', () => {
         reasons: ['参考 LLM 分 64'],
         constraints: [],
         tilt: 'hold',
+        risk: {
+          badges: ['平稳'],
+          summary: '波动与回撤约束未触发',
+          vol20AnnPct: 12,
+          volScalar: 1,
+          drawdown60Pct: 3,
+          ddScalar: 1,
+          prevTargetPct: 55,
+          deltaFromPrev: 0,
+        },
       },
       predictionTrack: {
         asOf: '2026-07-16',
@@ -99,10 +110,31 @@ describe('formatReportMarkdown', () => {
         recent: [],
         summary: 'LLM 方向命中 75%',
       },
+      dayDelta: {
+        prevDate: '2026-07-15',
+        currDate: '2026-07-16',
+        skipFineRead: true,
+        headline: '与昨日（2026-07-15）基本持平，可跳过细读',
+        scoreDelta: 1,
+        quantDelta: 0,
+        positionDelta: 0,
+        prevScore: 63,
+        currScore: 64,
+        prevQuant: 60,
+        currQuant: 60,
+        prevPositionPct: 55,
+        currPositionPct: 55,
+        scenarioDeltas: [],
+        drivers: [],
+        driverSummary: '宏观驱动较昨日无明显数字变化',
+        trackHint: null,
+      },
     });
     expect(md).toContain('## 📦 当前仓位推荐');
     expect(md).toContain('55%');
     expect(md).toContain('## 📊 历史预测对错');
     expect(md).toContain('75%');
+    expect(md).toContain('## 📅 较昨日一览');
+    expect(md).toContain('可跳过细读');
   });
 });
