@@ -292,7 +292,7 @@ node dist/index.js outlook --md     # docs/goldrush-outlook-latest.md
 
 风险约束仓位 v2、纸面 MaxDD、Regime 命中、因子 IC、walk-forward 等 **规划与反模式** 见：
 
-→ **[docs/ROADMAP-FINENG.md](./docs/ROADMAP-FINENG.md)** · 摘要索引 [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) v1.6
+→ **[docs/ROADMAP-FINENG.md](./docs/ROADMAP-FINENG.md)** · 摘要索引 [docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md) v1.7 · 决策质量总清单 [docs/DECISION-QUALITY.md](./docs/DECISION-QUALITY.md)
 
 `analysis --md` 额外输出两块，并写入供 Web 读取：
 
@@ -495,6 +495,8 @@ npm test
 | 文档 | 内容 |
 |------|------|
 | [docs/DUAL-SCORE.md](./docs/DUAL-SCORE.md) | **双打分机制**（冲突规则、分轨校准、因子） |
+| [docs/HORIZONS.md](./docs/HORIZONS.md) | **短/中/长三期尺度**（中期慢变量、命中分轨） |
+| [docs/DECISION-QUALITY.md](./docs/DECISION-QUALITY.md) | **2026-07 决策质量待办总清单**（改分/命中/Web 先读） |
 | [docs/LONG-TERM-OUTLOOK.md](./docs/LONG-TERM-OUTLOOK.md) | **1/3/5 年长期档**（慢变量、配置向、防吓人区间） |
 | [docs/POSITION-AND-TRACK.md](./docs/POSITION-AND-TRACK.md) | **仓位推荐 + 历史预测对错**（Web 统计面板） |
 | [docs/RELIABILITY.md](./docs/RELIABILITY.md) | **可信度一览 / 评分区间 / 搜索原文存档** |

@@ -240,14 +240,19 @@ target = smooth(target, prev, maxΔ=10)  # 日度仓位别跳 30%
 | C Regime 命中 Web | 🟡 部分 | 2026-07-24 | MD「同阶段校准」行；Web 仍可加强 |
 | D 新鲜度 SLA | ⬜ 未开始 | — | |
 | E 因子 IC | ✅ 已落地 | 2026-07-24 | `calibrate --ic`；Spearman；失效仅展示不自动改权 |
-| F Walk-forward | ✅ 已落地 | 2026-07-24 | `calibrate --walk-forward`；训练/测试 MAE |
+| F Walk-forward | ✅ 已落地 | 2026-07-27 | 训练/测试 MAE + **测试窗 OOS 方向命中**（CI/基准）；「训练偏移→测试应用」仍未做 |
 | G 情景校准 | ⬜ 未开始 | — | |
 | H Snippet 对账 | ⬜ 未开始 | — | 存档已有 |
 | I 金银比等 | ⬜ 未开始 | — | P2 |
 | J 真实性仪表盘 | ⬜ 未开始 | — | P2 |
 | K 评分-金价图 | ⬜ 未开始 | — | P2 |
+| L 三期尺度 + 中期命中 | ✅ 已落地 | 2026-07-27 | 见 `HORIZONS.md` / `DECISION-QUALITY.md` |
+| M 日报 meta sidecar | ✅ 已落地 | 2026-07-27 | Web 优先机器契约，MD 正则为回落 |
+| N 量化覆盖度重归一 + 口径单一来源 | ✅ 已落地 | 2026-07-27 | `quant-score` + `decision-thresholds` + `forward-return` |
 
 状态图例：⬜ 未开始 · 🟡 进行中 · ✅ 已落地 · ⏸ 搁置
+
+**决策质量轮次总清单（待办对照）**：**[docs/DECISION-QUALITY.md](./DECISION-QUALITY.md)**。
 
 ---
 
@@ -261,3 +266,4 @@ target = smooth(target, prev, maxΔ=10)  # 日度仓位别跳 30%
 | 2026-07-24 | 包：周末 `reflect` 错因反思 + 注入 analysis 上下文；列表对错/双打分 |
 | 2026-07-24 | 用户价值：事件→黄金传导卡 + 今日必看清单（`docs/USER-VALUE.md`） |
 | 2026-07-24 | **暂定**：传导不加量化因子 / `event_heat` 保持 0（防噪音） |
+| 2026-07-27 | 决策质量轮：量化重归一、口径单一来源、中期档+20 日命中、三期条、meta sidecar、FRED 观测日、backfill sanitize、walk-forward OOS；清单见 `DECISION-QUALITY.md` |

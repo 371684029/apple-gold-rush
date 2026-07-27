@@ -35,6 +35,12 @@ npm run dev -- calibrate --walk-forward --days 90
 
 按日期对半切：前半训练 / 后半测试，比较分桶 MAE。测试明显变差 → 提示全样本命中率可能偏乐观。
 
+同时在**测试窗**上独立记账 LLM 方向命中（`computeOosHitStats`）：
+
+- 前瞻窗口与命中判定走 `forward-return` + `decision-thresholds`（完整 5 日，不允许 partial）
+- 输出 hits/total、Wilson CI、「永远看涨」基准，写入控制台 / MD
+- **不是**「训练窗估校准偏移再应用到测试」——那一步仍属后续加深（见 `DECISION-QUALITY.md` §2）
+
 ## Regime 同阶段校准
 
 MD「宏观阶段」节在有 `calibration.regimeTag` 时追加「同阶段校准」行（历史同阶段 5 日涨概率）。
@@ -44,3 +50,8 @@ MD「宏观阶段」节在有 `calibration.regimeTag` 时追加「同阶段校�
 - 不要把 IC / walk-forward 结果自动抬某一侧权重
 - 不要在冲突日为了「看起来有变化」硬改仓位叙事
 - KPI 仍是操作可信度与纪律，不是点位命中
+
+## 相关
+
+- 决策质量总清单：[DECISION-QUALITY.md](./DECISION-QUALITY.md)
+- 金融工程包跟踪：[ROADMAP-FINENG.md](./ROADMAP-FINENG.md)

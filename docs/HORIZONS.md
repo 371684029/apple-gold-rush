@@ -89,18 +89,28 @@ TIPS 在 2.5% 但连续 60 日下行 → 偏多；在 0.5% 但连续上行 → �
 
 三档的命中标签不同，必须分轨统计，不能混着算：
 
-- 短期：5 个交易日方向，`prediction-track.ts`
-- 中期：20 个交易日方向，依赖 `mid_term_score` 积累
+- 短期：5 个交易日方向，`prediction-track.ts` → `llm` / `quant`
+- 中期：20 个交易日方向，`prediction-track.ts` → **`midTerm`**（读 `mid_term_score`；样本不足时 hitRate=null，文案「待积累」）
 - 长期：不做点位问责，只跟踪配置档位是否长期站得住
 
 所有命中率都遵循 `decision-thresholds.ts` 的统一口径：
 
 - 分数 ≥58 记「预测涨」、≤42 记「预测跌」，中间为中性**不计入**分母
   （页面上写「中性」的日子，不能拿来算准确率）
-- 5 日涨跌幅在 ±0.1% 以内记持平，不计对错
+- 涨跌幅在 ±0.1% 以内记持平，不计对错（中期完整 20 日窗口，不允许 partial 凑窗）
 - 命中率一律附 **Wilson 95% 置信区间**，样本 < 10 明确标注不具统计意义
 - 一律与**「永远看涨」朴素基准**并列——黄金长期偏多头，不比基准就分不清
   模型有信息量还是只是蹭了趋势
+
+---
+
+## Web：三期条 + meta sidecar
+
+- 首屏条：`web/horizon-strip.cjs`（文章顶 + 首页最新日报）
+- **优先**读同名 `.meta.json`（`web/report-meta.cjs` / `src/utils/report-meta.ts`），失败再解析 MD
+- 长期表按**表头名**取列，勿按列序号（旧表无「配置档位」列时会错位）
+
+完整决策质量清单见 **[DECISION-QUALITY.md](./DECISION-QUALITY.md)**。
 
 ---
 
@@ -110,5 +120,7 @@ TIPS 在 2.5% 但连续 60 日下行 → 偏多；在 0.5% 但连续上行 → �
 - `src/utils/long-term-outlook.ts` — 长期档实现，另见 `docs/LONG-TERM-OUTLOOK.md`
 - `src/utils/decision-thresholds.ts` — 方向与命中口径唯一来源
 - `src/utils/forward-return.ts` — 前瞻收益窗口唯一来源
+- `src/utils/prediction-track.ts` — 短/中期命中分轨
+- `src/utils/report-meta.ts` / `web/report-meta.cjs` — 日报机器契约
 - `web/horizon-strip.cjs` — 首屏三期决策条
-- `test/mid-term-outlook.test.ts` / `test/horizon-strip.test.ts`
+- `test/mid-term-outlook.test.ts` / `test/horizon-strip.test.ts` / `test/report-meta.test.ts`

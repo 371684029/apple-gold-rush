@@ -1,9 +1,9 @@
 # 当前仓位推荐 + 历史预测对错
 
-> 更新：2026-07-16  
+> 更新：2026-07-27  
 > 目标：日报 Web **可操作**（相对计划仓）+ **可核对**（历史方向对错统计），不是账户杠杆或业绩承诺。
 
-**相关**：`IMPROVEMENTS.md` 第十一轮、`docs/DUAL-SCORE.md`、`docs/DATA-QUALITY.md`、`AGENTS.md`、`README`、**`docs/ROADMAP-FINENG.md`（仓位 v2：波动/平滑/回撤规划）**。
+**相关**：`IMPROVEMENTS.md` 第十一轮、`docs/DUAL-SCORE.md`、`docs/DATA-QUALITY.md`、`AGENTS.md`、`README`、**`docs/ROADMAP-FINENG.md`**、**`docs/HORIZONS.md`**、**`docs/DECISION-QUALITY.md`（2026-07 决策质量总清单）**。
 
 ---
 
@@ -93,17 +93,24 @@
 
 ### 3.2 标签规则
 
+口径唯一来源：`decision-thresholds.ts` + `forward-return.ts`（**勿再写 55/45**）。
+
 | 规则 | 说明 |
 |------|------|
-| 预测方向 | 分数 **&gt;55 → 涨**，**&lt;45 → 跌**，中间不计入命中率 |
-| 实际 | 报告日伦敦收盘 vs 约 **T=5** 个有效交易日后；\|涨跌\|≤0.1% 视为持平，**不计对错** |
+| 预测方向 | 分数 **≥58 → 涨**，**≤42 → 跌**，中间中性**不计入**命中率分母（展示与记账同一套） |
+| 实际（短期） | 报告日伦敦收盘 → **T=5** 个有效交易日后；\|涨跌\|≤0.1% 持平，**不计对错**；近期反馈允许 partial（≥3 日） |
+| 实际（中期） | `mid_term_score` → **T=20** 完整交易日，**不允许** partial 凑窗 |
 | 样本 | 近 `windowDays`（默认 90）条有有效 `london_close` 的报告 |
+| 置信区间 | Wilson 95%；样本 &lt; 10 标注不具统计意义 |
+| 基准 | 「永远看涨」：可评估日里实际上涨占比；命中须与基准并列 |
 
 ### 3.3 统计字段（JSON / Web）
 
 | 字段 | 含义 |
 |------|------|
-| `llm.hitRate` / `quant.hitRate` | 方向命中率 % 与 hits/total |
+| `llm` / `quant` | 短期 5 日方向命中（`HitStat`：hits/total/hitRate/ci/significant/beatsBaseline） |
+| `midTerm` / `midTermHorizonDays` | 中期 20 日命中；无 `mid_term_score` 或样本不足时 hitRate=null |
+| `baselineUpRate` / `baselineN` | 永远看涨基准 |
 | `highScoreUpRate` | LLM≥60 时 5 日实际上涨概率 |
 | `lowScoreUpRate` | LLM≤40 时 5 日实际上涨概率 |
 | `conflictDays` | 双分冲突日数 |
@@ -180,7 +187,9 @@ calibrate 分轨     ─────────► 同标签规则；面板是�
 | [DUAL-SCORE.md](./DUAL-SCORE.md) | 冲突策略、方向预测阈值 |
 | [DATA-QUALITY.md](./DATA-QUALITY.md) | 红档关闭操作、Web 色点 |
 | [LONG-TERM-OUTLOOK.md](./LONG-TERM-OUTLOOK.md) | allocationStance 入仓位 |
-| [ROADMAP-FINENG.md](./ROADMAP-FINENG.md) | **仓位 v2 规划**：波动缩放、日平滑、回撤刹车、纸面 MaxDD |
+| [HORIZONS.md](./HORIZONS.md) | 中期 20 日命中分轨 |
+| [DECISION-QUALITY.md](./DECISION-QUALITY.md) | 2026-07 决策质量总清单 |
+| [ROADMAP-FINENG.md](./ROADMAP-FINENG.md) | 仓位 v2 已落地；纸面 MaxDD 等规划 |
 
 ### 已落地 — 风险约束仓位 v2（2026-07-16）
 

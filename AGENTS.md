@@ -43,15 +43,16 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 6. **门禁**（`data-quality-gate.ts`）：**勿用 conf&lt;55 硬拦**。红档=无金价 / 锚定偏差&gt;3% / conf&lt;35 → 关闭操作结论；黄档可出报告；绿档 conf≥70 且锚定贴合。
 7. **双打分**（`dual-score.ts`）：LLM 分与量化分**始终并排**；`|Δ|&gt;15` 或方向相反 → **仓位受限（≤50%）+ 定投为主**，文案须写清谁偏哪边与具体仓位%，**勿**千篇一律「双体系不一致」；四维弱一致单独不等于双体系冲突；不抬某一侧权重；`calibrate` 分轨统计谁更准；量化因子 `event_heat` 默认 0，无效因子可在 `DEFAULT_WEIGHTS` 置 0。
 8. **长期 1/3/5 年**（`long-term-outlook.ts`）：**配置向、慢变量主导**；3/5 年与当日 overall **脱钩**；反驳多年档惩罚封顶；累计区间硬顶 ±35%；`confidence=low` 不展示点位式累计%；相对上一 outlook **平滑**。完整说明：`docs/LONG-TERM-OUTLOOK.md`。命令：`outlook` / `outlook --md`（按最新 analysis 用新规则重算，不必等完整 analysis）。
-9. **仓位推荐 + 预测对错**（`position-recommend.ts` / `prediction-track.ts`）：相对「计划黄金仓」0–100%（非杠杆）；门禁红 ≤35%、双分冲突 ≤50%；每次 analysis 刷新 `docs/goldrush-stats-latest.json`（5 日方向命中、分桶、明细）。完整说明：`docs/POSITION-AND-TRACK.md`。Web：`server.cjs` 首页/文章页面板。
+9. **仓位推荐 + 预测对错**（`position-recommend.ts` / `prediction-track.ts`）：相对「计划黄金仓」0–100%（非杠杆）；门禁红 ≤35%、双分冲突 ≤50%；每次 analysis 刷新 `docs/goldrush-stats-latest.json`（短期 5 日 LLM/量化命中 + **中期 20 日 midTerm**、分桶、明细）。完整说明：`docs/POSITION-AND-TRACK.md`。Web：`server.cjs` 首页/文章页面板。
 10. **可信度一览**（`reliability-card.ts`）：门禁+双分+一致+校准+滚动命中 → 0–100 操作可信度 + 评分区间半宽 + 三行 TL;DR；**不是**预测准确率承诺。搜索原文存档 `docs/search-raw/`（`search-raw-archive.ts`）。说明：`docs/RELIABILITY.md`。
 11. **统一操作建议**（`resolveOperationalAdvice`）：优先级 门禁红 → 双分分歧（有仓位则仍给具体%） → 仓位推荐 → 分数人话；CLI/MD/Web 不得各写一套互相矛盾的文案。Smart 路径也须输出仓位与可信度。
-12. **较昨日 Δ + 研究卫生**（`day-delta.ts` / `factor-ic.ts` / `walk-forward.ts`）：日报强调相对昨日差分与驱动归因；持平可跳过细读；`calibrate --ic` / `--walk-forward`。说明：`docs/DAILY-DELTA.md`。
+12. **较昨日 Δ + 研究卫生**（`day-delta.ts` / `factor-ic.ts` / `walk-forward.ts`）：日报强调相对昨日差分与驱动归因；持平可跳过细读；`calibrate --ic` / `--walk-forward`（含测试窗 OOS 命中）。说明：`docs/DAILY-DELTA.md`。
 13. **周末错因反思**（`weekly-reflect.ts` / `reflect`）：周日归纳打脸原因→`docs/goldrush-reflect-latest.md`；下次 analysis 注入阅读要点。说明：`docs/WEEKLY-REFLECT.md`。
 14. **事件传导 + 今日必看**（`event-transmission.ts` / `reading-checklist.ts`）：热点只保留利率/美元/避险通道；无传导则「可忽略」。**暂定不加量化权重**（与 `event_heat=0` 一致，仅 Explain）。说明：`docs/USER-VALUE.md` §3.1。
 15. **三个时间尺度**（`mid-term-outlook.ts` / `long-term-outlook.ts`）：短期 5 日、中期 1～3 个月、长期 1/3/5 年，**命中标签不同必须分轨统计**；中期只吃慢变量、不吃 RSI/MACD；三档不一致是常态，仓位以短期档为准。说明：`docs/HORIZONS.md`。
-16. **口径单一来源**：方向阈值/持平死区/命中判定看 `decision-thresholds.ts`，前瞻收益窗口看 `forward-return.ts`，日报解析看 `web/report-extract.cjs`。**勿再在别处硬编码 58/42/55/45/0.1%**；命中率一律带 Wilson 区间与「永远看涨」基准。
-17. **后续规划入口**：**`docs/ROADMAP-FINENG.md`**（金融工程/业界借鉴：风险约束仓位 v2、纸面 MaxDD、Regime Web、因子 IC、反模式）。新功能先落 **Signals → Gates → Portfolio → Explain** 哪一层；勿以点位准确率为 KPI、勿冲突时抬单侧权重。
+16. **口径单一来源**：方向阈值/持平死区/命中判定看 `decision-thresholds.ts`，前瞻收益窗口看 `forward-return.ts`，日报解析看 `web/report-extract.cjs`（**优先** `.meta.json` sidecar）。**勿再在别处硬编码 58/42/55/45/0.1%**；命中率一律带 Wilson 区间与「永远看涨」基准。
+17. **日报 meta sidecar**（`report-meta.ts`）：`analysis` 写 MD 时同步 `*.meta.json`；Web 决策面板优先读机器契约。历史日报需重跑 `--md` 才有 sidecar。
+18. **后续规划入口**：**`docs/ROADMAP-FINENG.md`**；**本轮决策质量总清单**：**`docs/DECISION-QUALITY.md`**。新功能先落 **Signals → Gates → Portfolio → Explain** 哪一层；勿以点位准确率为 KPI、勿冲突时抬单侧权重。
 
 ### 出站网络现状（生产机实测，会变）
 | 源 | 状态 | 用途 |
@@ -94,11 +95,14 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 |------|----------|-----------|
 | 方向阈值 / 持平死区 / 命中判定 / Wilson 区间 / 基准比较 | `src/utils/decision-thresholds.ts` | 阈值散落 8 处；展示用 58/42、记账用 55/45，**56 分页面写「中性」却按「预测涨」记账** |
 | 前瞻收益窗口 | `src/utils/forward-return.ts` | 命中率用 close(T)→close(T+5)，因子 IC 用 close(T+1)→close(T+6)，两者对不上账 |
-| 日报 Markdown → 结构化字段 | `web/report-extract.cjs` | `server.cjs` 内联正则只认单值评分，区间版式解析失败即整个决策面板消失 |
+| 日报机器可读契约 | `src/utils/report-meta.ts` → `*.meta.json` | 版式一改（区间评分）正则静默失败，整个决策面板消失 |
+| 日报 Markdown → 结构化字段（回落） | `web/report-extract.cjs` | 仅当 sidecar 缺失或 schema 不匹配时使用 |
 
 **命中率必须带样本量与基准**：`formatHitRate` 会输出 Wilson 95% 区间，样本 < 10 明确标注「不具统计意义」；`prediction-track` 同时给出「永远看涨」朴素基准——黄金长期偏多头，不比基准分不清模型有信息量还是只是蹭趋势。
 
 **Markdown 表格解析按表头名取列，不要按列序号**：长期表在 2026-07 中旬没有「配置档位」列，按序号硬取会把回报区间当配置档位显示。
+
+**决策质量总清单（以后改分/命中/Web 决策面板先读）**：**`docs/DECISION-QUALITY.md`**。
 
 ## 双打分制（LLM + 量化）
 
@@ -134,7 +138,7 @@ GoldRush（黄金投资研究 Agent）核心是 **CLI 工具**。入口 `src/ind
 
 **覆盖度重归一（2026-07 起，重要）**：缺数据的因子会被剔除，`score` 按**实际参与的权重**重归一，因此分数标尺与覆盖度无关。不这样做时，缺 `dxy`/`us10y`/`tips`/`regime`（合计 35%）会让中性行情算出 32.5 分并被读成「偏空」——生产日报里出现过覆盖度 70% → 36 分的例子，等于 FRED 一断线就自动看空。结果附带 `coverage` / `missingFactors` / `staleFactors`，覆盖度 < 75% 时报告会提示。
 
-**宏观时效**：`macroAgeDays` 传入各宏观序列最新观测的滞后天数，超过 `MAX_MACRO_AGE_DAYS`（10 天）剔除并重归一，避免 FRED 中断时拿两周前的实际利率当今天的信号（FRED 返回体把 `timestamp` 写成当前时刻，光看它分辨不出新旧）。序列与时效由 `pickMacroSeries`（`price-series.ts`）一起取出。
+**宏观时效**：`macroAgeDays` 传入各宏观序列最新观测的滞后天数，超过 `MAX_MACRO_AGE_DAYS`（10 天）剔除并重归一，避免 FRED 中断时拿两周前的实际利率当今天的信号。FRED 锚定的 `timestamp` **必须用观测日**（`live-anchors.fetchFredLatest`），禁止写成 `new Date()`。序列与时效由 `pickMacroSeries`（`price-series.ts`）一起取出。
 
 **改 `macro-regime.ts` 的 tag 时必须同步改 `REGIME_SIGNAL_MAP`**：两者曾经完全不相交（前者产出 `real_rate_headwind` 等，后者只认 `recession_risk` 等），该因子长期恒为 50。现在未知 tag 会被剔除而不是伪装成中性，`test/quant-score.test.ts` 有断言守住这条。
 

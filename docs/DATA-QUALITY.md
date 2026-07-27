@@ -191,10 +191,13 @@ console.log('lbma', h.length, h.slice(-2));
 |----|------|------|
 | GLD 持仓吨数 | ✅ 东财新闻解析 SPDR 吨数（现网） | 样本少时粗判；可继续扩历史 |
 | PBOC 月度吨数 | ✅ 东财搜索「中国央行黄金储备」 | 月更，连续增持月数可再校准 |
-| FRED 利率序列 | 常超时 | 国内镜像或新浪/东方财富利率接口 |
+| FRED 利率序列 | 常超时 | 国内镜像或新浪/东方财富利率接口；**已修**：`timestamp` 用观测日，不再伪装「刚刚验证」 |
 | 搜索原文存档 | ✅ `docs/search-raw/`（30 天） | snippet 自动对账见 ROADMAP-FINENG 包 H |
 | 数据新鲜度 SLA | 规划 | 金价/快照年龄 → 门禁（ROADMAP-FINENG 包 D） |
 | 当日错误 MD 报告 | 旧稿仍在 docs/ | 跑完 `analysis --md` 覆盖 |
+| 历史回填脏 0 | ✅ `upsertBackfill` 与 `upsert` 同 sanitize | 见 `test/gold-prices-sanitize.test.ts` |
+
+决策质量相关数据项总览：**[DECISION-QUALITY.md](./DECISION-QUALITY.md)** §1.5。
 
 ---
 
