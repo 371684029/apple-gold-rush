@@ -5,6 +5,17 @@
  * RSI = 100 - (100 / (1 + RS))
  * RS = 平均涨幅 / 平均跌幅
  */
+/**
+ * 由平均涨跌幅得出 RSI。
+ * 完全走平（涨跌均为 0）时 RS 无定义，返回中性 50 —— 若沿用 avgLoss===0 ⇒ RS=100
+ * 的分支，横盘会被读成 RSI≈99 的极端超买。
+ */
+function rsiFrom(avgGain: number, avgLoss: number): number {
+  if (avgLoss === 0 && avgGain === 0) return 50;
+  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
 export function rsi(data: number[], period: number = 14): (number | null)[] {
   const result: (number | null)[] = [];
 
@@ -36,8 +47,7 @@ export function rsi(data: number[], period: number = 14): (number | null)[] {
   // 第一个 RSI（在 period+1 数据点处）
   result.push(...Array(period).fill(null));
 
-  let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-  result.push(100 - 100 / (1 + rs));
+  result.push(rsiFrom(avgGain, avgLoss));
 
   // 后续用 EMA 方式计算
   for (let i = period; i < changes.length; i++) {
@@ -47,8 +57,7 @@ export function rsi(data: number[], period: number = 14): (number | null)[] {
     avgGain = (avgGain * (period - 1) + gain) / period;
     avgLoss = (avgLoss * (period - 1) + loss) / period;
 
-    rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    result.push(100 - 100 / (1 + rs));
+    result.push(rsiFrom(avgGain, avgLoss));
   }
 
   return result;

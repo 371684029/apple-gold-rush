@@ -15,7 +15,7 @@ import { applyCalibrationScore, directionFromScore } from '../utils/calibration-
 import { adjustScoreWithRebuttal } from '../utils/rebuttal-score.js';
 import { scoreBucketRange } from '../utils/score-buckets.js';
 import { countConsecutiveDirectionDays } from '../utils/consecutive-direction.js';
-import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
+import { forwardFillCloses, latestDeviationFromMA, pickMacroSeries } from '../utils/price-series.js';
 import { applyScenarioProbabilities, formatScenarioProbLine, type ScenarioProbabilities } from '../utils/scenario-probability.js';
 import type { MacroRegime } from '../utils/macro-regime.js';
 import type { CausalChainMatch } from '../utils/gold-causal-rules.js';
@@ -179,27 +179,38 @@ export class OrchestratorAgent extends BaseAgent {
     // 纯量化评分（与 LLM 评分并行，独立可复现；因子明细写入报告）
     let quantScore: number | undefined;
     let quantFactors: GoldAnalysisReport['overall']['quantFactors'];
+    let quantCoverage: number | undefined;
+    let quantMissingFactors: string[] | undefined;
+    let quantStaleFactors: string[] | undefined;
     try {
       const pricesRepo = new GoldPricesRepo(db);
       const recentRecords = pricesRepo.getRecent(120);
       const closes = forwardFillCloses(recentRecords);
       const sorted = closes.filter((v): v is number => v != null);
-      const dxy = recentRecords.map(r => r.dollarIndex).filter((v): v is number => v != null);
-      const us10y = recentRecords.map(r => r.us10yYield).filter((v): v is number => v != null);
-      const tips = recentRecords.map(r => r.tipsYield).filter((v): v is number => v != null);
+      const dxySeries = pickMacroSeries(recentRecords, r => r.dollarIndex);
+      const us10ySeries = pickMacroSeries(recentRecords, r => r.us10yYield);
+      const tipsSeries = pickMacroSeries(recentRecords, r => r.tipsYield);
       const flowSignal = computeInstitutionalSignal(
         marketData?.london?.price?.value ?? null,
       );
       const quantResult = computeQuantScore({
         closes: sorted,
-        dxy: dxy.length >= 20 ? dxy : undefined,
-        us10y: us10y.length >= 20 ? us10y : undefined,
-        tips: tips.length >= 20 ? tips : undefined,
+        dxy: dxySeries.values.length >= 20 ? dxySeries.values : undefined,
+        us10y: us10ySeries.values.length >= 20 ? us10ySeries.values : undefined,
+        tips: tipsSeries.values.length >= 20 ? tipsSeries.values : undefined,
         flowSignal,
         regimeTag: opts.macroRegime.tag,
+        macroAgeDays: {
+          dxy: dxySeries.ageDays,
+          us10y: us10ySeries.ageDays,
+          tips: tipsSeries.ageDays,
+        },
       });
       quantScore = quantResult.score;
       quantFactors = quantResult.factors;
+      quantCoverage = quantResult.coverage;
+      quantMissingFactors = quantResult.missingFactors;
+      quantStaleFactors = quantResult.staleFactors;
     } catch {
       quantScore = undefined;
       quantFactors = undefined;
@@ -392,6 +403,9 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         direction: displayDirection,
         quantScore,
         quantFactors,
+        quantCoverage,
+        quantMissingFactors,
+        quantStaleFactors,
         calibration: {
           ...(calibrationContext ?? {
             scoreRange: 'N/A',

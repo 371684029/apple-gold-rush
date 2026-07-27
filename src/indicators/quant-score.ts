@@ -21,9 +21,19 @@ export interface QuantFactorDetail {
   name: string;
   rawValue: number;
   normalizedScore: number;
+  /** 名义权重（DEFAULT_WEIGHTS 中的设定值） */
   weight: number;
+  /** 重归一后的实际权重 = weight / coverage；所有生效因子之和 = 1 */
+  effectiveWeight: number;
+  /** normalizedScore × effectiveWeight，所有生效因子之和 = score */
   contribution: number;
 }
+
+/** 宏观序列最后一个观测值的滞后天数，超过该值视为过期并剔除 */
+export const MAX_MACRO_AGE_DAYS = 10;
+
+/** 低于该覆盖度时量化分参考价值有限，应在报告中提示 */
+export const MIN_HEALTHY_COVERAGE = 0.75;
 
 export interface QuantScoreParams {
   closes: number[];
@@ -33,19 +43,33 @@ export interface QuantScoreParams {
   flowSignal?: InstitutionalSignal;
   regimeTag?: string;
   eventScore?: number;
+  /**
+   * 各宏观序列最新观测值距今天数。超过 MAX_MACRO_AGE_DAYS 的因子会被剔除并重归一，
+   * 避免 FRED 中断时把两周前的实际利率当成今天的信号。
+   */
+  macroAgeDays?: { dxy?: number | null; us10y?: number | null; tips?: number | null };
 }
 
 export interface QuantScoreResult {
   score: number;
   direction: 'bullish' | 'bearish' | 'neutral';
   factors: Record<string, QuantFactorDetail>;
+  /**
+   * 参与计算的名义权重合计（0–1）。score 已按此重归一，
+   * 因此缺数据只会放大不确定性，不会把分数拉向 0。
+   */
+  coverage: number;
+  /** 因数据不足被剔除的因子 key */
+  missingFactors: string[];
+  /** 因数据过期被剔除的因子 key */
+  staleFactors: string[];
 }
 
 // ============================================================
 // 权重（总和 = 1.0）
 // ============================================================
 
-const DEFAULT_WEIGHTS: Record<string, number> = {
+export const DEFAULT_WEIGHTS: Record<string, number> = {
   trend:     0.12,
   rsi:       0.10,
   macd:      0.10,
@@ -63,6 +87,31 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
 function clamp(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, v)); }
 function w(key: string): number { return DEFAULT_WEIGHTS[key] ?? 0; }
 
+/** 构造因子明细；effectiveWeight / contribution 在重归一阶段回填 */
+function detail(key: string, name: string, rawValue: number, normalizedScore: number): QuantFactorDetail {
+  return { name, rawValue, normalizedScore, weight: w(key), effectiveWeight: 0, contribution: 0 };
+}
+
+/**
+ * 按实际参与的权重重归一，使 score 始终落在同一 0–100 标尺上。
+ *
+ * 不这样做时，缺少 dxy/us10y/tips/regime（合计 35%）会让中性行情算出 32.5 分，
+ * 被直接读成「偏空」——数据缺失被误当成看空信号。
+ */
+function normalizeFactors(factors: Record<string, QuantFactorDetail>): { score: number; coverage: number } {
+  let coverage = 0;
+  for (const f of Object.values(factors)) coverage += f.weight;
+  if (coverage <= 0) return { score: 50, coverage: 0 };
+
+  let total = 0;
+  for (const f of Object.values(factors)) {
+    f.effectiveWeight = Math.round((f.weight / coverage) * 10000) / 10000;
+    f.contribution = Math.round(f.normalizedScore * f.effectiveWeight * 100) / 100;
+    total += f.normalizedScore * (f.weight / coverage);
+  }
+  return { score: Math.round(clamp(total, 0, 100)), coverage: Math.round(coverage * 10000) / 10000 };
+}
+
 // ============================================================
 // 因子 1-6：金价技术/估值/资金
 // ============================================================
@@ -71,12 +120,12 @@ function trendFactor(closes: number[]): QuantFactorDetail {
   const ma = latestMA(closes, 20);
   const cur = closes[closes.length - 1];
   const dev = ma != null && ma > 0 ? ((cur - ma) / ma) * 100 : 0;
-  return { name:'金价趋势(MA20)', rawValue:Math.round(dev*100)/100, normalizedScore:clamp(50+dev*5,10,90), weight:w('trend'), contribution:0 };
+  return detail('trend', '金价趋势(MA20)', Math.round(dev*100)/100, clamp(50+dev*5,10,90));
 }
 
 function rsiFactor(closes: number[]): QuantFactorDetail {
   const raw = latestRSI(closes, 14) ?? 50;
-  return { name:'RSI(14)', rawValue:Math.round(raw*100)/100, normalizedScore:Math.round(clamp(raw,5,95)), weight:w('rsi'), contribution:0 };
+  return detail('rsi', 'RSI(14)', Math.round(raw*100)/100, Math.round(clamp(raw,5,95)));
 }
 
 function macdFactor(closes: number[]): QuantFactorDetail {
@@ -84,24 +133,24 @@ function macdFactor(closes: number[]): QuantFactorDetail {
   const raw = m?.histogram ?? 0;
   const cur = closes[closes.length - 1];
   const scaled = cur > 0 ? (raw / cur) * 1000 : 0;
-  return { name:'MACD动能', rawValue:Math.round(scaled*100)/100, normalizedScore:clamp(50+scaled*5,10,90), weight:w('macd'), contribution:0 };
+  return detail('macd', 'MACD动能', Math.round(scaled*100)/100, clamp(50+scaled*5,10,90));
 }
 
 function bollingerFactor(closes: number[]): QuantFactorDetail {
   const bb = latestBollinger(closes, 20, 2);
   const pB = bb?.percentB ?? 0.5;
-  return { name:'布林带(%B)', rawValue:Math.round(pB*1000)/1000, normalizedScore:clamp((1-pB)*100,10,90), weight:w('bollinger'), contribution:0 };
+  return detail('bollinger', '布林带(%B)', Math.round(pB*1000)/1000, clamp((1-pB)*100,10,90));
 }
 
 function valuationFactor(closes: number[]): QuantFactorDetail {
   const cur = closes[closes.length - 1];
   const pct = closes.length >= 20 ? percentile(cur, closes) : 50;
-  return { name:'估值(百分位)', rawValue:Math.round(pct*10)/10, normalizedScore:clamp(100-pct,10,90), weight:w('valuation'), contribution:0 };
+  return detail('valuation', '估值(百分位)', Math.round(pct*10)/10, clamp(100-pct,10,90));
 }
 
 function flowFactor(flowSignal?: InstitutionalSignal): QuantFactorDetail {
   const raw = flowSignal?.overallScore ?? 50;
-  return { name:'主力(CFTC+ETF+央行)', rawValue:raw, normalizedScore:clamp(raw,10,90), weight:w('flow'), contribution:0 };
+  return detail('flow', '主力(CFTC+ETF+央行)', raw, clamp(raw,10,90));
 }
 
 // ============================================================
@@ -112,7 +161,7 @@ function dxyFactor(dxy: number[]): QuantFactorDetail {
   const ma = latestMA(dxy, 20);
   const cur = dxy[dxy.length - 1];
   const dev = ma != null && ma > 0 ? ((cur - ma) / ma) * 100 : 0;
-  return { name:'美元指数(DXY)', rawValue:Math.round(dev*100)/100, normalizedScore:clamp(50-dev*10,10,90), weight:w('dxy'), contribution:0 };
+  return detail('dxy', '美元指数(DXY)', Math.round(dev*100)/100, clamp(50-dev*10,10,90));
 }
 
 function us10yFactor(us10y: number[]): QuantFactorDetail {
@@ -120,7 +169,7 @@ function us10yFactor(us10y: number[]): QuantFactorDetail {
   const cur = us10y[us10y.length - 1];
   const base = ma ?? cur;
   const dev = base > 0 ? ((cur - base) / base) * 100 : 0;
-  return { name:'10Y名义收益率', rawValue:Math.round(dev*100)/100, normalizedScore:clamp(50-dev*8,10,90), weight:w('us10y'), contribution:0 };
+  return detail('us10y', '10Y名义收益率', Math.round(dev*100)/100, clamp(50-dev*8,10,90));
 }
 
 /**
@@ -134,37 +183,60 @@ function tipsFactor(tips: number[]): QuantFactorDetail {
   const cur = tips[tips.length - 1];
   const base = ma ?? cur;
   const dev = base !== 0 ? ((cur - base) / Math.abs(base)) * 100 : cur * 100;
-  return { name:'实际收益率(TIPS)', rawValue:Math.round(cur*10000)/10000, normalizedScore:clamp(50-dev*0.8,10,90), weight:w('tips'), contribution:0 };
+  return detail('tips', '实际收益率(TIPS)', Math.round(cur*10000)/10000, clamp(50-dev*0.8,10,90));
 }
 
 // ============================================================
 // 因子 10：波动率 (ATR/Price)
-// 高波动 → 不确定性，对黄金为中性偏多信号（避险需求）
+// 高波动 → 不确定性上升，避险需求推升黄金，为中性偏多信号。
+// 低波动（如 VIX 低位）→ 市场缺乏恐慌，黄金缺少避险买盘。
+// 以 0.5%/日 ATR 为中枢，向上给多、向下给空，区间 [30,70]。
 // ============================================================
+const ATR_PIVOT_PCT = 0.5;
+
 function volatilityFactor(closes: number[]): QuantFactorDetail {
   const period = 14;
   if (closes.length < period + 1) {
-    return { name:'波动率(ATR)', rawValue:0, normalizedScore:50, weight:w('volatility'), contribution:0 };
+    return detail('volatility', '波动率(ATR)', 0, 50);
   }
   let sumTR = 0;
   for (let i = closes.length - period; i < closes.length; i++) {
     sumTR += Math.abs(closes[i] - closes[i - 1]) / closes[i - 1] * 100;
   }
   const atrPct = sumTR / period;
-  const normalized = clamp(50 + (0.5 - atrPct) * 20, 30, 70);
-  return { name:'波动率(ATR)', rawValue:Math.round(atrPct*100)/100, normalizedScore:Math.round(normalized), weight:w('volatility'), contribution:0 };
+  const normalized = clamp(50 + (atrPct - ATR_PIVOT_PCT) * 20, 30, 70);
+  return detail('volatility', '波动率(ATR)', Math.round(atrPct*100)/100, Math.round(normalized));
 }
 
 // ============================================================
 // 因子 11：宏观阶段
 // ============================================================
-function regimeFactor(regimeTag?: string): QuantFactorDetail {
-  const map: Record<string, number> = {
-    'recession_risk':85, 'dovish_pivot':80, 'stagflation':78,
-    'soft_landing':55, 'goldilocks':45, 'hawkish':30, 'tightening':25,
-    'strong_dollar':35, 'risk_on':40, 'disinflation_boom':40,
-  };
-  return { name:'宏观阶段', rawValue:0, normalizedScore:map[regimeTag??'']??50, weight:w('regime'), contribution:0 };
+
+/**
+ * 宏观阶段 → 信号分。
+ *
+ * 键必须与 detectMacroRegime 实际产出的 tag 保持一致，否则该因子恒为中性 50，
+ * 权重白白摊薄其它因子。改 macro-regime.ts 的 tag 时同步改这里。
+ */
+export const REGIME_SIGNAL_MAP: Record<string, number> = {
+  // macro-regime.ts 当前产出的标签
+  real_rate_headwind: 28,
+  dovish_pivot_watch: 72,
+  dollar_strength: 35,
+  oversold_repair: 60,
+  extended_rally: 42,
+  rate_volatility: 45,
+  range_bound: 50,
+  // 历史/外部标签，保留兼容
+  recession_risk: 85, dovish_pivot: 80, stagflation: 78,
+  soft_landing: 55, goldilocks: 45, hawkish: 30, tightening: 25,
+  strong_dollar: 35, risk_on: 40, disinflation_boom: 40,
+};
+
+function regimeFactor(regimeTag: string): QuantFactorDetail | null {
+  const score = REGIME_SIGNAL_MAP[regimeTag];
+  if (score == null) return null;
+  return detail('regime', '宏观阶段', score, score);
 }
 
 // ============================================================
@@ -174,7 +246,7 @@ function regimeFactor(regimeTag?: string): QuantFactorDetail {
 // ============================================================
 function eventHeatFactor(eventScore?: number): QuantFactorDetail {
   const raw = eventScore ?? 50;
-  return { name:'事件热度', rawValue:raw, normalizedScore:clamp(raw,10,90), weight:w('event_heat'), contribution:0 };
+  return detail('event_heat', '事件热度', raw, clamp(raw,10,90));
 }
 
 // ============================================================
@@ -182,13 +254,15 @@ function eventHeatFactor(eventScore?: number): QuantFactorDetail {
 // ============================================================
 
 export function computeQuantScore(params: QuantScoreParams): QuantScoreResult {
-  const { closes, dxy, us10y, tips, flowSignal, regimeTag, eventScore } = params;
+  const { closes, dxy, us10y, tips, flowSignal, regimeTag, eventScore, macroAgeDays } = params;
 
   if (closes.length < 20) {
     return minimalResult(flowSignal?.overallScore ?? 50, regimeTag);
   }
 
   const factors: QuantScoreResult['factors'] = {};
+  const missingFactors: string[] = [];
+  const staleFactors: string[] = [];
 
   factors.trend      = trendFactor(closes);
   factors.rsi        = rsiFactor(closes);
@@ -198,35 +272,70 @@ export function computeQuantScore(params: QuantScoreParams): QuantScoreResult {
   factors.flow       = flowFactor(flowSignal);
   factors.volatility = volatilityFactor(closes);
 
-  if (dxy && dxy.length >= 20)    factors.dxy   = dxyFactor(dxy);
-  if (us10y && us10y.length >= 20) factors.us10y = us10yFactor(us10y);
-  if (tips && tips.length >= 20)   factors.tips  = tipsFactor(tips);
-  if (regimeTag && w('regime') > 0) factors.regime = regimeFactor(regimeTag);
+  const isStale = (age: number | null | undefined): boolean => age != null && age > MAX_MACRO_AGE_DAYS;
+
+  const addMacro = (
+    key: 'dxy' | 'us10y' | 'tips',
+    series: number[] | undefined,
+    build: (s: number[]) => QuantFactorDetail,
+  ): void => {
+    if (!series || series.length < 20) { missingFactors.push(key); return; }
+    if (isStale(macroAgeDays?.[key])) { staleFactors.push(key); return; }
+    factors[key] = build(series);
+  };
+
+  addMacro('dxy', dxy, dxyFactor);
+  addMacro('us10y', us10y, us10yFactor);
+  addMacro('tips', tips, tipsFactor);
+
+  if (w('regime') > 0) {
+    const r = regimeTag ? regimeFactor(regimeTag) : null;
+    if (r) factors.regime = r;
+    else missingFactors.push('regime');
+  }
   if (eventScore != null && w('event_heat') > 0) factors.event_heat = eventHeatFactor(eventScore);
 
-  let totalScore = 0;
-  for (const f of Object.values(factors) as QuantFactorDetail[]) {
-    f.contribution = Math.round(f.normalizedScore * f.weight * 100) / 100;
-    totalScore += f.contribution;
-  }
+  const { score, coverage } = normalizeFactors(factors);
 
-  const finalScore = Math.round(clamp(totalScore, 0, 100));
-  return { score:finalScore, direction:finalScore>=58?'bullish':finalScore<=42?'bearish':'neutral', factors };
+  return {
+    score,
+    direction: score >= 58 ? 'bullish' : score <= 42 ? 'bearish' : 'neutral',
+    factors,
+    coverage,
+    missingFactors,
+    staleFactors,
+  };
 }
 
 function minimalResult(defaultFlow: number, regimeTag?: string): QuantScoreResult {
   const f: QuantScoreResult['factors'] = {};
-  f.trend = { name:'趋势', rawValue:0, normalizedScore:50, weight:w('trend'), contribution:50*w('trend') };
-  f.rsi   = { name:'RSI', rawValue:50, normalizedScore:50, weight:w('rsi'), contribution:50*w('rsi') };
-  f.macd  = { name:'MACD', rawValue:0, normalizedScore:50, weight:w('macd'), contribution:50*w('macd') };
-  f.flow  = { name:'主力', rawValue:defaultFlow, normalizedScore:defaultFlow, weight:w('flow'), contribution:defaultFlow*w('flow') };
+  f.trend = detail('trend', '趋势', 0, 50);
+  f.rsi   = detail('rsi', 'RSI', 50, 50);
+  f.macd  = detail('macd', 'MACD', 0, 50);
+  f.flow  = detail('flow', '主力', defaultFlow, clamp(defaultFlow, 10, 90));
   if (regimeTag && w('regime') > 0) {
     const r = regimeFactor(regimeTag);
-    f.regime = { ...r, contribution: r.normalizedScore * w('regime') };
+    if (r) f.regime = r;
   }
-  let total = 0;
-  for (const v of Object.values(f) as QuantFactorDetail[]) total += v.contribution;
-  return { score:Math.round(clamp(total,0,100)), direction:'neutral', factors:f };
+  const { score, coverage } = normalizeFactors(f);
+  return {
+    score,
+    direction: 'neutral',
+    factors: f,
+    coverage,
+    missingFactors: ['bollinger', 'valuation', 'volatility', 'dxy', 'us10y', 'tips'],
+    staleFactors: [],
+  };
+}
+
+/** 覆盖度不足时给报告用的一句话提示；覆盖度健康时返回 null */
+export function quantCoverageWarning(result: QuantScoreResult): string | null {
+  if (result.coverage >= MIN_HEALTHY_COVERAGE) return null;
+  const parts: string[] = [];
+  if (result.missingFactors.length) parts.push(`缺失 ${result.missingFactors.join('/')}`);
+  if (result.staleFactors.length) parts.push(`过期 ${result.staleFactors.join('/')}（>${MAX_MACRO_AGE_DAYS}天）`);
+  const why = parts.length ? `（${parts.join('；')}）` : '';
+  return `量化分仅由 ${(result.coverage * 100).toFixed(0)}% 权重的因子构成${why}，已按覆盖度重归一，但参考价值下降。`;
 }
 
 // ============================================================
@@ -239,13 +348,15 @@ export function formatQuantScoreConsole(result: QuantScoreResult, indent = '  ')
   lines.push(`${indent}🔢 量化评分构成（纯本地计算，零 LLM）`);
   lines.push(`${indent}${bar}`);
   for (const f of Object.values(result.factors) as QuantFactorDetail[]) {
-    const pct = Math.round(f.weight * 100);
-    if (pct === 0) continue;
+    const pct = Math.round(f.effectiveWeight * 100);
+    if (f.weight <= 0) continue;
     lines.push(`${indent}  ${f.name.padEnd(16,' ')} 信号=${String(f.normalizedScore).padStart(3)} × ${String(pct).padStart(2)}%  →  +${f.contribution.toFixed(1)}`);
   }
   lines.push(`${indent}${bar}`);
   const dm: Record<string,string> = { bullish:'📈 偏多', bearish:'📉 偏空', neutral:'➡️ 中性' };
   lines.push(`${indent}  量化综合分`.padEnd(indent.length+14) + `= ${result.score}  ${dm[result.direction]}`);
+  const warn = quantCoverageWarning(result);
+  if (warn) lines.push(`${indent}  ⚠️ ${warn}`);
   return lines.join('\n');
 }
 
@@ -265,22 +376,29 @@ export function formatQuantScoreMarkdown(
   const lines = [
     '### 量化因子构成（纯本地，event_heat 默认权重 0）',
     '',
-    '| 因子 | 信号分 | 权重 | 贡献 |',
-    '|------|--------|------|------|',
+    '| 因子 | 信号分 | 名义权重 | 实际权重 | 贡献 |',
+    '|------|--------|----------|----------|------|',
   ];
   let sumW = 0;
+  let sumEff = 0;
   for (const f of Object.values(factors) as QuantFactorDetail[]) {
     if (f.weight <= 0) continue;
     sumW += f.weight;
+    sumEff += f.effectiveWeight;
     lines.push(
-      `| ${f.name} | ${f.normalizedScore} | ${(f.weight * 100).toFixed(0)}% | +${f.contribution.toFixed(1)} |`,
+      `| ${f.name} | ${f.normalizedScore} | ${(f.weight * 100).toFixed(0)}% | ${(f.effectiveWeight * 100).toFixed(0)}% | +${f.contribution.toFixed(1)} |`,
     );
   }
   if (score != null) {
-    lines.push(`| **合计** | | ${(sumW * 100).toFixed(0)}% | **${score}** |`);
+    lines.push(`| **合计** | | ${(sumW * 100).toFixed(0)}% | ${(sumEff * 100).toFixed(0)}% | **${score}** |`);
   }
   lines.push('');
-  lines.push('> tips / flow / trend 等结构化因子保留权重；事件热度默认关闭。无效因子可在 `DEFAULT_WEIGHTS` 中置 0 后重归一。');
+  if (sumW < MIN_HEALTHY_COVERAGE) {
+    lines.push(`> ⚠️ 本次仅 ${(sumW * 100).toFixed(0)}% 名义权重的因子有数据。分数已按覆盖度重归一（实际权重合计 100%），`);
+    lines.push('> 因此缺数据不会把分数拉低成假「偏空」，但结论的可靠性相应下降。');
+    lines.push('');
+  }
+  lines.push('> 名义权重取自 `DEFAULT_WEIGHTS`；实际权重 = 名义权重 ÷ 覆盖度，保证缺因子时分数标尺不变。');
   lines.push('');
   return lines.join('\n');
 }

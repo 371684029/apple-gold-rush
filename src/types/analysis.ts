@@ -1,5 +1,7 @@
 // 分析结果类型定义
 
+import type { QuantFactorDetail } from '../indicators/quant-score.js';
+
 /** 分析方向 */
 export type Direction = 'bullish' | 'bearish' | 'neutral';
 
@@ -195,13 +197,13 @@ export interface GoldAnalysisReport {
     /** 纯量化评分（零 LLM，100% 可复现） */
     quantScore?: number;
     /** 量化因子明细（可选，供日报/Web 展示） */
-    quantFactors?: Record<string, {
-      name: string;
-      rawValue: number;
-      normalizedScore: number;
-      weight: number;
-      contribution: number;
-    }>;
+    quantFactors?: Record<string, QuantFactorDetail>;
+    /** 参与量化打分的名义权重合计（0–1）；<1 表示部分因子缺数据，分数已重归一 */
+    quantCoverage?: number;
+    /** 因数据缺失被剔除的量化因子 */
+    quantMissingFactors?: string[];
+    /** 因数据过期被剔除的量化因子 */
+    quantStaleFactors?: string[];
     /** 当日建议目标仓 %（相对计划仓，供次日日平滑） */
     positionTargetPct?: number;
   };

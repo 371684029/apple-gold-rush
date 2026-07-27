@@ -1000,7 +1000,10 @@ function printReport(
       console.log(formatQuantScoreConsole({
         score: overall.quantScore,
         direction: quantDir,
-        factors: overall.quantFactors as import('../indicators/quant-score.js').QuantScoreResult['factors'],
+        factors: overall.quantFactors,
+        coverage: overall.quantCoverage ?? 1,
+        missingFactors: overall.quantMissingFactors ?? [],
+        staleFactors: overall.quantStaleFactors ?? [],
       }, '  '));
     }
   }
