@@ -18,6 +18,11 @@ const {
   renderListPosHtml,
   buildCardSearchBlob,
 } = require('./web/list-card-meta.cjs');
+const {
+  extractScore,
+  extractQuantScore,
+  extractQuantCoverage,
+} = require('./web/report-extract.cjs');
 
 /** macOS 风格窗口标题栏（装饰性 traffic lights） */
 function macTitlebar(label = '') {
@@ -39,33 +44,7 @@ const CALIBRATION_SAMPLE_WARN = 5;
 
 // ===== 评分提取 =====
 
-/** 从 Markdown 中提取评分和方向 */
-function extractScore(md) {
-  // 匹配 "综合评分：**68/100**（📈 偏多）" 及变体
-  const m = md.match(/综合评分[：:]\s*\*{0,2}(\d+)\/100\*{0,2}[\s（(]*([^）)]*)[）)]?/);
-  if (!m) return null;
-  const score = parseInt(m[1], 10);
-  const dirText = m[2] || '';
-  let direction = 'neutral';
-  if (dirText.includes('多') || dirText.includes('涨')) direction = 'bullish';
-  else if (dirText.includes('空') || dirText.includes('跌')) direction = 'bearish';
-  return { score, direction };
-}
-
-/** 提取量化评分对比行：- 🔢 量化评分: **63/100** | LLM: 67/100 | ⚠️ LLM偏高 +4 */
-function extractQuantScore(md) {
-  // 主格式：匹配量化分 + LLM 分（两栏均可能有 ** 加粗），diff 由调用方自行计算
-  const m = md.match(/量化评分[：:]\s*\*{0,2}(\d+)\/100\*{0,2}\s*\|\s*LLM[：:]\s*\*{0,2}(\d+)\/100/);
-  if (m) {
-    return { quantScore: parseInt(m[1], 10), llmScore: parseInt(m[2], 10), diff: null };
-  }
-  // fallback: 只有量化评分单独一行的格式（如仅展示 🔢 量化评分: 63 时）
-  const alt = md.match(/🔢\s*量化评分[：:]\s*\*{0,2}(\d+)/);
-  if (alt) {
-    return { quantScore: parseInt(alt[1], 10), llmScore: null, diff: null };
-  }
-  return null;
-}
+// extractScore / extractQuantScore 见 web/report-extract.cjs（兼容区间格式，有单测）
 
 /** 提取四维度评分（仅匹配表格行，避免正文中误匹配） */
 function extractDimensionScores(md) {
