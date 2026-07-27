@@ -75,6 +75,7 @@ function initializeTables(db: Database.Database): void {
       report_json TEXT,
       overall_score INTEGER,
       quant_score REAL,
+      mid_term_score REAL,
       direction   TEXT,
       created_at  TEXT DEFAULT (datetime('now'))
     )
@@ -150,6 +151,11 @@ function initializeTables(db: Database.Database): void {
   // 迁移：为旧数据库添加 quant_score 列（幂等，列已存在时忽略错误）
   try {
     db.exec('ALTER TABLE analysis_reports ADD COLUMN quant_score REAL');
+  } catch { /* 列已存在则忽略 */ }
+
+  // 迁移：中期（1～3 个月）方向分，命中标签为 20 个交易日，与 5 日短期分分轨统计
+  try {
+    db.exec('ALTER TABLE analysis_reports ADD COLUMN mid_term_score REAL');
   } catch { /* 列已存在则忽略 */ }
 
   db.exec(scenarioFeaturesDDL);

@@ -15,12 +15,17 @@ import { buildScoreBreakdown, extendBreakdownWithCalibration, formatScoreBreakdo
 import { detectMacroRegime, formatMacroRegimeLine } from '../utils/macro-regime.js';
 import { buildJudgeVerdict, formatJudgeVerdictConsole } from '../utils/judge-verdict.js';
 import { buildLongTermOutlook, formatLongTermOutlookConsole } from '../utils/long-term-outlook.js';
+import {
+  buildMidTermOutlook,
+  formatMidTermOutlookConsole,
+  type MidTermOutlook,
+} from '../utils/mid-term-outlook.js';
 import { findSimilarPatterns } from '../utils/scenario-similarity.js';
 import { buildRunManifest, saveRunManifest, wrapAnalysisOutputV1 } from '../utils/run-manifest.js';
 import { getDb } from '../db/index.js';
 import { ScenarioFeaturesRepo } from '../db/scenario-features.js';
 import { ReportsRepo } from '../db/reports.js';
-import { forwardFillCloses, latestDeviationFromMA } from '../utils/price-series.js';
+import { forwardFillCloses, latestDeviationFromMA, pickMacroSeries } from '../utils/price-series.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { ensureGoldPriceHistory, MIN_TRADING_ROWS_FOR_ANALYSIS } from '../utils/ensure-gold-history.js';
 import { priceSeriesProxyNote, spotProxyDeviationWarning } from '../utils/price-semantics.js';
@@ -412,6 +417,30 @@ export async function analysisCommand(options: {
   report.macroRegime = macroRegime;
   report.causalChains = causalChains;
 
+  // 中期方向（1～3 个月）：补上短期 5 日与长期 1/3/5 年之间的断档
+  let previousMidTerm: MidTermOutlook | null = null;
+  try {
+    for (const row of reportsRepo.getRecent(21)) {
+      if (row.date >= today) continue;
+      const prev = parseReportJson(row.reportJson);
+      if (prev?.midTermOutlook?.horizons?.length) {
+        previousMidTerm = prev.midTermOutlook;
+        break;
+      }
+    }
+  } catch { /* ignore */ }
+
+  const midTermOutlook = buildMidTermOutlook({
+    closes: forwardFillCloses(priceHistory),
+    dxy: pickMacroSeries(priceHistory, r => r.dollarIndex).values,
+    tips: pickMacroSeries(priceHistory, r => r.tipsYield).values,
+    cftcNetPercentile: flowSignal?.cftc?.percentile ?? null,
+    flowSignal: flowSignal ?? undefined,
+    macroRegime,
+    previous: previousMidTerm,
+  });
+  report.midTermOutlook = midTermOutlook;
+
   // 当前仓位推荐（相对计划黄金仓 · 风险约束 v2：波动/回撤/日平滑）
   const primaryHorizon = longTermOutlook?.horizons?.find(h => h.years === 3)
     ?? longTermOutlook?.horizons?.[0];
@@ -565,12 +594,24 @@ export async function analysisCommand(options: {
   const manifestPath = saveRunManifest(manifest);
   console.log(`  📦 审计包已保存: ${manifestPath}`);
 
+  // 回写富化后的报告：orchestrator 在 LLM 合成后就落库，此时长期/中期展望、
+  // 仓位、门禁覆盖尚未产出，不回写会让 history / diff / calibrate 读到半成品
+  if (report.reportRowId != null) {
+    try {
+      reportsRepo.updateFinal(report.reportRowId, {
+        reportJson: JSON.stringify(report),
+        midTermScore: midTermOutlook?.score ?? null,
+      });
+    } catch { /* 落库失败不应中断报告输出 */ }
+  }
+
   const reportExtras = {
     macroRegime,
     judgeVerdict,
     similarPatterns,
     scoreBreakdown,
     longTermOutlook,
+    midTermOutlook,
     dataQualityGate,
     dualVerdict,
     positionRec,
@@ -698,6 +739,15 @@ async function runSmartAnalysis(
     applyNonActionableOverlay(report, dataQualityGate);
   }
 
+  // 中期档纯本地慢变量，Smart 路径同样可以算，不必等完整 LLM 分析
+  const smartHistory = priceRepo.getRecent(800);
+  report.midTermOutlook = buildMidTermOutlook({
+    closes: forwardFillCloses(smartHistory),
+    dxy: pickMacroSeries(smartHistory, r => r.dollarIndex).values,
+    tips: pickMacroSeries(smartHistory, r => r.tipsYield).values,
+    previous: previous.midTermOutlook ?? null,
+  });
+
   const primaryHorizon = report.longTermOutlook?.horizons?.find(h => h.years === 3)
     ?? report.longTermOutlook?.horizons?.[0];
   const closesForRisk = forwardFillCloses(priceRepo.getRecent(120));
@@ -798,6 +848,7 @@ async function runSmartAnalysis(
     judgeVerdict,
     scoreBreakdown,
     longTermOutlook: report.longTermOutlook,
+    midTermOutlook: report.midTermOutlook,
     dataQualityGate,
     dualVerdict,
     positionRec,
@@ -815,6 +866,7 @@ async function runSmartAnalysis(
     reportJson: JSON.stringify(report),
     overallScore: report.overall.score,
     quantScore: report.overall.quantScore ?? null,
+    midTermScore: report.midTermOutlook?.score ?? null,
     direction: report.overall.direction,
   });
 
@@ -908,6 +960,7 @@ function printReport(
     judgeVerdict?: import('../utils/judge-verdict.js').JudgeVerdict;
     similarPatterns?: PatternMatch[];
     longTermOutlook?: import('../types/analysis.js').LongTermOutlook;
+    midTermOutlook?: MidTermOutlook;
     dataQualityGate?: DataQualityGate;
     dualVerdict?: DualScoreVerdict;
     positionRec?: PositionRecommendation;
@@ -957,6 +1010,10 @@ function printReport(
       const ret = p.actual5dReturn != null ? `${p.actual5dReturn > 0 ? '+' : ''}${p.actual5dReturn.toFixed(2)}%` : '待回填';
       console.log(`  · ${p.date} 相似 ${(p.similarity * 100).toFixed(0)}% | 5日后 ${ret} | 当时评分 ${p.score}`);
     }
+  }
+
+  if (extras?.midTermOutlook) {
+    console.log('\n' + formatMidTermOutlookConsole(extras.midTermOutlook));
   }
 
   if (extras?.longTermOutlook) {

@@ -9,6 +9,8 @@ export interface AnalysisReportRow {
   reportJson: string;
   overallScore: number;
   quantScore: number | null;
+  /** 中期（1～3 个月）方向分；命中标签为 20 个交易日 */
+  midTermScore: number | null;
   direction: Direction;
   createdAt: string;
 }
@@ -16,12 +18,30 @@ export interface AnalysisReportRow {
 export class ReportsRepo {
   constructor(private db: Database.Database) {}
 
+  /**
+   * 用富化后的最终报告覆盖已存的行。
+   *
+   * orchestrator 在 LLM 合成后就写库，而长期/中期展望、仓位、门禁覆盖等
+   * 都是之后才补上的，导致 SQLite 里的 report_json 比 docs/*.md 少一截，
+   * history / diff / calibrate 读到的是半成品。分析流程末尾调用本方法补齐。
+   */
+  updateFinal(id: number, patch: { reportJson: string; midTermScore?: number | null }): void {
+    this.db.prepare(`
+      UPDATE analysis_reports
+      SET report_json = ?, mid_term_score = COALESCE(?, mid_term_score)
+      WHERE id = ?
+    `).run(patch.reportJson, patch.midTermScore ?? null, id);
+  }
+
   /** 插入分析报告 */
-  insert(report: Omit<AnalysisReportRow, 'id' | 'createdAt'>): number {
+  insert(report: Omit<AnalysisReportRow, 'id' | 'createdAt' | 'midTermScore'> & { midTermScore?: number | null }): number {
     const result = this.db.prepare(`
-      INSERT INTO analysis_reports (date, horizon, report_json, overall_score, quant_score, direction)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(report.date, report.horizon, report.reportJson, report.overallScore, report.quantScore ?? null, report.direction);
+      INSERT INTO analysis_reports (date, horizon, report_json, overall_score, quant_score, mid_term_score, direction)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      report.date, report.horizon, report.reportJson, report.overallScore,
+      report.quantScore ?? null, report.midTermScore ?? null, report.direction,
+    );
     return Number(result.lastInsertRowid);
   }
 
@@ -80,6 +100,7 @@ function mapRow(row: Record<string, unknown>): AnalysisReportRow {
     reportJson: row.report_json as string,
     overallScore: row.overall_score as number,
     quantScore: row.quant_score as number | null,
+    midTermScore: (row.mid_term_score ?? null) as number | null,
     direction: row.direction as Direction,
     createdAt: row.created_at as string,
   };

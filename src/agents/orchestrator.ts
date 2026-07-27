@@ -422,14 +422,14 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
       },
     };
 
-    // 自动保存报告到 SQLite
-    this.saveReport(report, horizon);
+    // 自动保存报告到 SQLite；返回行 id 供分析流程末尾覆盖为富化后的版本
+    report.reportRowId = this.saveReport(report, horizon);
 
     return report;
   }
 
-  /** 保存报告 */
-  private saveReport(report: GoldAnalysisReport, horizon: string): void {
+  /** 保存报告，返回行 id（失败时 undefined） */
+  private saveReport(report: GoldAnalysisReport, horizon: string): number | undefined {
     try {
       const db = getDb();
       const reportsRepo = new ReportsRepo(db);
@@ -513,8 +513,10 @@ ${horizon === 'short' ? '仅短期视角' : horizon === 'mid' ? '仅中长期视
         etfFlow5d,
         flowScore,
       });
+      return reportId;
     } catch (err) {
       console.error('保存报告失败:', err);
+      return undefined;
     }
   }
 }

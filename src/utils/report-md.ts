@@ -13,6 +13,7 @@ import type { MacroRegime } from './macro-regime.js';
 import type { JudgeVerdict } from './judge-verdict.js';
 import { formatJudgeVerdictMarkdown } from './judge-verdict.js';
 import { formatLongTermOutlookMarkdown } from './long-term-outlook.js';
+import { formatMidTermOutlookMarkdown, type MidTermOutlook } from './mid-term-outlook.js';
 import { formatCausalChainsMarkdown } from './gold-causal-rules.js';
 import type { LongTermOutlook } from '../types/analysis.js';
 import type { PatternMatch } from '../types/calibration.js';
@@ -43,6 +44,7 @@ export interface ReportMarkdownExtras {
   similarPatterns?: PatternMatch[];
   scoreBreakdown?: ScoreBreakdown;
   longTermOutlook?: LongTermOutlook;
+  midTermOutlook?: MidTermOutlook;
   dataQualityGate?: DataQualityGate;
   dualVerdict?: DualScoreVerdict;
   positionRec?: PositionRecommendation;
@@ -320,6 +322,11 @@ export function formatReportMarkdown(
     lines.push(`- 支撑区：${na(m.keyLevels?.supportZone)}　|　阻力区：${na(m.keyLevels?.resistanceZone)}`);
     lines.push(`- ⚠️ 风险提示：${na(m.riskWarning)}`);
     lines.push('');
+  }
+
+  const midTerm = extras?.midTermOutlook ?? report.midTermOutlook;
+  if (midTerm) {
+    lines.push(formatMidTermOutlookMarkdown(midTerm));
   }
 
   const longTerm = extras?.longTermOutlook ?? report.longTermOutlook;

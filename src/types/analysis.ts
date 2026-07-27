@@ -1,6 +1,7 @@
 // 分析结果类型定义
 
 import type { QuantFactorDetail } from '../indicators/quant-score.js';
+import type { MidTermOutlook } from '../utils/mid-term-outlook.js';
 
 /** 分析方向 */
 export type Direction = 'bullish' | 'bearish' | 'neutral';
@@ -209,6 +210,10 @@ export interface GoldAnalysisReport {
   };
   /** 1/3/5 年等多期限方向预期（本地规则推导，非价格预测） */
   longTermOutlook?: LongTermOutlook;
+  /** 1～3 个月中期方向预期（本地慢变量规则） */
+  midTermOutlook?: MidTermOutlook;
+  /** SQLite analysis_reports 行 id，供分析流程末尾回写富化后的报告 */
+  reportRowId?: number;
   /** 当日宏观阶段（写入 JSON 供 regime 校准） */
   macroRegime?: import('../utils/macro-regime.js').MacroRegime;
   /** 本地因果规则匹配结果 */

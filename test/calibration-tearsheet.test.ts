@@ -30,9 +30,9 @@ describe('buildCalibrationTearsheet', () => {
 
   it('有报告与金价时生成区间统计', () => {
     const reports: AnalysisReportRow[] = [
-      { id: 1, date: '2026-06-01', horizon: 'all', reportJson: '{}', overallScore: 60, direction: 'neutral', quantScore: null, createdAt: '' },
-      { id: 2, date: '2026-06-02', horizon: 'all', reportJson: '{}', overallScore: 70, direction: 'bullish', quantScore: null, createdAt: '' },
-      { id: 3, date: '2026-06-03', horizon: 'all', reportJson: '{}', overallScore: 80, direction: 'bullish', quantScore: null, createdAt: '' },
+      { id: 1, date: '2026-06-01', horizon: 'all', reportJson: '{}', overallScore: 60, direction: 'neutral', quantScore: null, midTermScore: null, createdAt: '' },
+      { id: 2, date: '2026-06-02', horizon: 'all', reportJson: '{}', overallScore: 70, direction: 'bullish', quantScore: null, midTermScore: null, createdAt: '' },
+      { id: 3, date: '2026-06-03', horizon: 'all', reportJson: '{}', overallScore: 80, direction: 'bullish', quantScore: null, midTermScore: null, createdAt: '' },
     ];
     const sheet = buildCalibrationTearsheet(reports, mockPrices(), 2);
     expect(sheet.sampleCount).toBeGreaterThan(0);
