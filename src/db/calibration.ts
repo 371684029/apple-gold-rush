@@ -13,6 +13,7 @@ import {
   type DualTrackHitStats,
 } from '../utils/dual-score.js';
 import { predictDirectionFromScore, classifyReturn } from '../utils/decision-thresholds.js';
+import { forwardReturnPct } from '../utils/forward-return.js';
 
 /** 有效金价：>0 才参与校准（排除脏 0 / 缺失） */
 function validClose(v: number | null | undefined): v is number {
@@ -96,14 +97,12 @@ export class CalibrationRepo {
     const reports = this.eligibleReports(days);
 
     for (const report of reports) {
-      const currentPrice = this.prices.getByDate(report.date);
-      const futurePrices = this.prices.getAfter(report.date, T)
-        .filter(p => validClose(p.londonClose));
-      const futurePrice = futurePrices.length >= T ? futurePrices[T - 1] : futurePrices[futurePrices.length - 1];
-      if (!validClose(currentPrice?.londonClose) || !validClose(futurePrice?.londonClose)) continue;
-
-      const futureReturn =
-        (futurePrice.londonClose - currentPrice!.londonClose!) / currentPrice!.londonClose! * 100;
+      // 与 prediction-track / factor-ic 同一口径
+      const futureReturn = forwardReturnPct(this.prices, report.date, T, {
+        allowPartial: true,
+        minPartialDays: 3,
+      });
+      if (futureReturn == null) continue;
       const actual = classifyReturn(futureReturn);
       if (actual === 'flat') continue; // 持平不计入方向命中
       const actualUp = actual === 'up';

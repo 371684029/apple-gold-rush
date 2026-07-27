@@ -4,6 +4,7 @@
 import type { AnalysisReportRow } from '../db/reports.js';
 import type { GoldPricesRepo } from '../db/gold-prices.js';
 import { parseReportJson } from './smart-analysis.js';
+import { forwardReturnPct } from './forward-return.js';
 
 export interface FactorIcRow {
   key: string;
@@ -53,22 +54,6 @@ function spearman(xs: number[], ys: number[]): number | null {
   }
   if (sx <= 0 || sy <= 0) return null;
   return sxy / Math.sqrt(sx * sy);
-}
-
-function forwardReturnPct(
-  prices: GoldPricesRepo,
-  date: string,
-  horizonDays: number,
-): number | null {
-  const after = prices.getAfter(date, horizonDays + 5);
-  const closes = after
-    .map(r => r.londonClose)
-    .filter((c): c is number => c != null && c > 0);
-  if (closes.length < horizonDays) return null;
-  const start = closes[0];
-  const end = closes[Math.min(horizonDays, closes.length - 1)];
-  if (!start || !end) return null;
-  return ((end - start) / start) * 100;
 }
 
 /**

@@ -10,6 +10,7 @@ import { GoldPricesRepo } from '../db/gold-prices.js';
 import { CalibrationRepo } from '../db/calibration.js';
 import { SCORE_BUCKETS } from './score-buckets.js';
 import { DUAL_CONFLICT_THRESHOLD } from './dual-score.js';
+import { forwardReturnPct, validClose } from './forward-return.js';
 import {
   predictDirectionFromScore,
   isHit,
@@ -93,10 +94,6 @@ export interface PredictionTrackStats {
   summary: string;
 }
 
-function validClose(v: number | null | undefined): v is number {
-  return v != null && Number.isFinite(v) && v > 0;
-}
-
 function toHitStat(hits: number, total: number, baseline: number | null): HitStat {
   if (total <= 0) {
     return { hits, total, hitRate: null, ciLow: null, ciHigh: null, significant: false, beatsBaseline: false };
@@ -118,13 +115,9 @@ function futureReturn(
   date: string,
   T: number,
 ): number | null {
-  const cur = prices.getByDate(date);
-  if (!validClose(cur?.londonClose)) return null;
-  const after = prices.getAfter(date, T).filter(p => validClose(p.londonClose));
-  if (after.length < Math.min(T, 3)) return null;
-  const fut = after.length >= T ? after[T - 1] : after[after.length - 1];
-  if (!validClose(fut.londonClose)) return null;
-  return ((fut.londonClose - cur!.londonClose!) / cur!.londonClose!) * 100;
+  // 与 factor-ic / calibration 同一口径；窗口不足 T 天时允许部分窗口，
+  // 以便最近几天的报告也能先给出方向反馈
+  return forwardReturnPct(prices, date, T, { allowPartial: true, minPartialDays: 3 });
 }
 
 export function buildPredictionTrackStats(

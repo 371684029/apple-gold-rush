@@ -82,7 +82,14 @@ function parseCftcCsv(text: string): CftcRecord[] {
       const dateRaw = cols[2]?.replace(/"/g, '').trim(); // YYYY-MM-DD in col 2
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) continue;
 
-      const parse = (i: number) => parseInt(cols[i]?.replace(/"/g, '') || '0', 10) || 0;
+      // 解析失败返回 null 而不是 0：0 手持仓是一个有含义的极端值，
+      // 把损坏的单元格当成 0 会伪造出「多头全部离场」的信号
+      const parse = (i: number): number | null => {
+        const raw = cols[i]?.replace(/"/g, '').trim();
+        if (!raw) return null;
+        const n = parseInt(raw, 10);
+        return Number.isFinite(n) ? n : null;
+      };
 
       const openInterest = parse(7);
       const nonCommLong = parse(12);  // Managed Money Long
@@ -92,6 +99,14 @@ function parseCftcCsv(text: string): CftcRecord[] {
       const swapLong = parse(10);
       const swapShort = parse(11);
 
+      // 净头寸所需字段任一缺失，则整行不可信，跳过而非补零
+      if (nonCommLong == null || nonCommShort == null || openInterest == null) continue;
+
+      const commNet =
+        prodLong != null && prodShort != null && swapLong != null && swapShort != null
+          ? (prodLong - prodShort) + (swapLong - swapShort)
+          : 0;
+
       records.push({
         date: dateRaw,
         publishDate: dateRaw,
@@ -99,7 +114,7 @@ function parseCftcCsv(text: string): CftcRecord[] {
         nonCommShort,
         nonCommNet: nonCommLong - nonCommShort,
         nonCommNetChange: 0,
-        commNet: (prodLong - prodShort) + (swapLong - swapShort),
+        commNet,
         openInterest,
       });
     } catch {

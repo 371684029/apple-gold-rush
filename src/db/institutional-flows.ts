@@ -6,7 +6,13 @@ import { addCalendarDays, todayDate } from '../utils/time.js';
 export class InstitutionalFlowsRepo {
   constructor(private db: Database.Database) {}
 
-  /** 插入或更新当日主力动向数据 */
+  /**
+   * 插入或更新当日主力动向数据。
+   *
+   * 各来源是分开抓的：ensureCftc 只带 CFTC 字段、GLD/PBOC 位置显式传 null，
+   * ensureGld 反之。若直接写 excluded.*，刷新 CFTC 就会把同一天已抓到的
+   * GLD 吨数和央行储备清空。因此一律 COALESCE：没抓到就保留原值，不覆盖。
+   */
   upsert(record: Omit<InstitutionalFlowRecord, 'createdAt'>): void {
     this.db.prepare(`
       INSERT INTO institutional_flows (date,
@@ -20,24 +26,24 @@ export class InstitutionalFlowsRepo {
         comex_volume)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(date) DO UPDATE SET
-        cftc_nc_long = excluded.cftc_nc_long,
-        cftc_nc_short = excluded.cftc_nc_short,
-        cftc_nc_net = excluded.cftc_nc_net,
-        cftc_nc_change = excluded.cftc_nc_change,
-        cftc_comm_net = excluded.cftc_comm_net,
-        cftc_open_interest = excluded.cftc_open_interest,
-        cftc_report_date = excluded.cftc_report_date,
-        gld_holdings_tons = excluded.gld_holdings_tons,
-        gld_holdings_change = excluded.gld_holdings_change,
-        gld_aum_million = excluded.gld_aum_million,
-        iau_holdings_tons = excluded.iau_holdings_tons,
-        cn_etf_518880_shares = excluded.cn_etf_518880_shares,
-        cn_etf_518880_flow = excluded.cn_etf_518880_flow,
-        cn_etf_159934_shares = excluded.cn_etf_159934_shares,
-        cn_etf_159934_flow = excluded.cn_etf_159934_flow,
-        cb_pboc_reserves = excluded.cb_pboc_reserves,
-        cb_pboc_change = excluded.cb_pboc_change,
-        comex_volume = excluded.comex_volume
+        cftc_nc_long = COALESCE(excluded.cftc_nc_long, institutional_flows.cftc_nc_long),
+        cftc_nc_short = COALESCE(excluded.cftc_nc_short, institutional_flows.cftc_nc_short),
+        cftc_nc_net = COALESCE(excluded.cftc_nc_net, institutional_flows.cftc_nc_net),
+        cftc_nc_change = COALESCE(excluded.cftc_nc_change, institutional_flows.cftc_nc_change),
+        cftc_comm_net = COALESCE(excluded.cftc_comm_net, institutional_flows.cftc_comm_net),
+        cftc_open_interest = COALESCE(excluded.cftc_open_interest, institutional_flows.cftc_open_interest),
+        cftc_report_date = COALESCE(excluded.cftc_report_date, institutional_flows.cftc_report_date),
+        gld_holdings_tons = COALESCE(excluded.gld_holdings_tons, institutional_flows.gld_holdings_tons),
+        gld_holdings_change = COALESCE(excluded.gld_holdings_change, institutional_flows.gld_holdings_change),
+        gld_aum_million = COALESCE(excluded.gld_aum_million, institutional_flows.gld_aum_million),
+        iau_holdings_tons = COALESCE(excluded.iau_holdings_tons, institutional_flows.iau_holdings_tons),
+        cn_etf_518880_shares = COALESCE(excluded.cn_etf_518880_shares, institutional_flows.cn_etf_518880_shares),
+        cn_etf_518880_flow = COALESCE(excluded.cn_etf_518880_flow, institutional_flows.cn_etf_518880_flow),
+        cn_etf_159934_shares = COALESCE(excluded.cn_etf_159934_shares, institutional_flows.cn_etf_159934_shares),
+        cn_etf_159934_flow = COALESCE(excluded.cn_etf_159934_flow, institutional_flows.cn_etf_159934_flow),
+        cb_pboc_reserves = COALESCE(excluded.cb_pboc_reserves, institutional_flows.cb_pboc_reserves),
+        cb_pboc_change = COALESCE(excluded.cb_pboc_change, institutional_flows.cb_pboc_change),
+        comex_volume = COALESCE(excluded.comex_volume, institutional_flows.comex_volume)
     `).run(
       record.date,
       record.cftcNcLong, record.cftcNcShort, record.cftcNcNet, record.cftcNcChange,

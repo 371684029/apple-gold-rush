@@ -43,6 +43,10 @@ describe('computeFactorIc', () => {
     }
 
     const prices = {
+      getByDate(date: string) {
+        const c = closesByDate.get(date);
+        return c == null ? undefined : { date, londonClose: c };
+      },
       getAfter(date: string, limit: number) {
         const keys = [...closesByDate.keys()].sort();
         const idx = keys.indexOf(date);
@@ -73,7 +77,7 @@ describe('computeFactorIc', () => {
       direction: 'neutral',
       createdAt: '2026-07-01',
     } as AnalysisReportRow];
-    const prices = { getAfter: () => [] } as unknown as GoldPricesRepo;
+    const prices = { getByDate: () => undefined, getAfter: () => [] } as unknown as GoldPricesRepo;
     const ic = computeFactorIc(reports, prices);
     expect(ic.rows).toHaveLength(0);
     expect(ic.summary).toMatch(/暂无/);
