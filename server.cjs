@@ -23,6 +23,7 @@ const {
   extractQuantScore,
   extractQuantCoverage,
 } = require('./web/report-extract.cjs');
+const { renderHorizonStrip } = require('./web/horizon-strip.cjs');
 
 /** macOS 风格窗口标题栏（装饰性 traffic lights） */
 function macTitlebar(label = '') {
@@ -664,6 +665,17 @@ function conflictHeadlineFromDual(dual, positionRec) {
   return `同向${llmDir}但分差偏大（Δ${dStr}）：${extremeSide}更极端`;
 }
 
+/** 建议来源 → 人话标签；dual_conflict 这类内部枚举不该直接摆到页面上 */
+function adviceSourceLabel(source) {
+  const map = {
+    dual_conflict: '双分分歧决定',
+    position: '按仓位模型',
+    score: '按综合评分',
+    gate: '数据门禁决定',
+  };
+  return map[source] || source;
+}
+
 function resolveAdvice(scoreInfo, gate, dualScore, positionRec) {
   if (gate && !gate.actionable) return nonActionableAdviceWeb();
   if (dualScore?.conflict && gate?.actionable !== false) {
@@ -1079,7 +1091,7 @@ function renderPredictionDashboard(meta) {
         ${macroLine}
       </div>
       <div class="pred-verdict-col">
-        <div class="pred-dir-tag">${advice.emoji} ${advice.label}${advice.source ? `<span class="pred-src">${esc(advice.source)}</span>` : ''}</div>
+        <div class="pred-dir-tag">${advice.emoji} ${advice.label}${advice.source ? `<span class="pred-src">${esc(adviceSourceLabel(advice.source))}</span>` : ''}</div>
         ${actionBoxHtml}
         <div class="pred-pills">
           <div class="pred-pill conf-${confClass}">数据置信 ${confPct}%</div>
@@ -1355,6 +1367,14 @@ function renderIndex(fileInfos) {
   }
   const homePanels = `${renderReadingChecklistPanel(latest?.readingChecklist)}${renderDayDeltaPanel(latest?.listDelta || latest?.dayDelta)}${renderTransmissionPanel(latest?.transmission)}${renderReliabilityPanel(latestRel)}${renderPositionPanel(latestPos)}${renderPredictionStatsPanel(predictionStats)}`;
 
+  // 首页也先给三期决策条：不点进文章就知道短/中/长分别怎么说
+  let latestHorizonHtml = '';
+  if (latest?.filename) {
+    try {
+      latestHorizonHtml = renderHorizonStrip(fs.readFileSync(path.join(DOCS_DIR, latest.filename), 'utf-8'));
+    } catch { /* 读不到就不显示，不影响首页其余内容 */ }
+  }
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1390,6 +1410,7 @@ function renderIndex(fileInfos) {
       <button class="sort-btn active" id="sort-date" onclick="setSort('date')">日期</button>
       <button class="sort-btn" id="sort-score" onclick="setSort('score')">评分</button>
     </div>
+    ${latestHorizonHtml}
     ${heroHtml}
     ${homePanels ? `<div class="home-panels mac-window glass-strong">${macTitlebar('今日一览')}${homePanels}</div>` : ''}
     ${rest.length ? `<div class="section-label">历史日报</div><div class="card-grid" id="card-grid">${cardRows}</div>` : ''}
@@ -1479,6 +1500,9 @@ function renderArticle(mdFilename, rawMarkdown) {
     positionLine: positionRec ? `建议仓位 ${positionRec.targetPct}%（${positionRec.label}）` : null,
   });
   const advice = resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec);
+
+  // 三期决策条置于文章最顶部：短/中/长一屏看完再决定要不要细读
+  const horizonStripHtml = kind === 'analysis' ? renderHorizonStrip(rawMarkdown) : '';
 
   // Quick-read card only for analysis
   const quickReadHtml = kind === 'analysis' ? renderQuickRead({
@@ -1592,6 +1616,7 @@ function renderArticle(mdFilename, rawMarkdown) {
     </aside>
     <div class="article-main">
       ${flowDashboardHtml}
+      ${horizonStripHtml}
       ${quickReadHtml}
       ${dashboardHtml}
       <div class="article-shell mac-window">

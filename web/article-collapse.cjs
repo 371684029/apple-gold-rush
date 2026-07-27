@@ -1,10 +1,16 @@
 // 文章页折叠：按 h2 分节、反驳列表折叠、默认展开策略
 
-/** 仅展开的章节关键词（策略 / 情景） */
+/**
+ * 默认展开的章节关键词。
+ * 用户的核心诉求是「短/中/长分别怎么办」，因此三档方向小节都默认展开；
+ * 长期档此前被折叠，想看多年配置结论要先点开，等于把结论藏起来。
+ */
 const OPEN_SECTION_KEYS = [
   '短期策略',
   '中长期策略',
   '情景分析',
+  '中期方向',
+  '长期方向',
 ];
 
 /** 不再单独列出；默认全部折叠，只通过 OPEN_SECTION_KEYS 白名单放行 */
@@ -17,6 +23,7 @@ function sectionKind(title) {
   if (t.includes('短期策略')) return 'short-strategy';
   if (t.includes('中长期策略')) return 'mid-strategy';
   if (t.includes('尾部风险')) return 'tail-risk';
+  if (t.includes('中期方向')) return 'mid-term';
   if (t.includes('长期方向')) return 'long-term';
   if (t.includes('四维度')) return 'dimensions';
   if (t.includes('裁决')) return 'judge';

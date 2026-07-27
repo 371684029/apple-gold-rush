@@ -350,6 +350,60 @@ footer a:hover { color: var(--text); }
     transition-duration: 0.01ms !important;
   }
 }
+/* ===== 三期决策条（短 / 中 / 长） ===== */
+.horizon-strip {
+  margin: 0 0 14px;
+  padding: 16px 18px;
+  background: var(--glass-strong);
+  border: 0.5px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+.hz-lead {
+  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--text-2); margin-bottom: 12px;
+}
+.hz-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.hz-cell {
+  padding: 14px 16px; border-radius: var(--radius-md);
+  background: var(--glass-soft); border: 0.5px solid var(--hairline);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.hz-cell.hz-bull { background: rgba(48,209,88,0.10); border-color: rgba(48,209,88,0.26); }
+.hz-cell.hz-bear { background: rgba(255,69,58,0.09); border-color: rgba(255,69,58,0.24); }
+.hz-cell.hz-flat { background: rgba(255,159,10,0.09); border-color: rgba(255,159,10,0.24); }
+.hz-cell.hz-empty { opacity: 0.6; }
+.hz-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.hz-title { font-size: 0.98rem; font-weight: 700; color: var(--text); }
+.hz-span { font-size: 0.72rem; color: var(--text-3); }
+.hz-dir { font-size: 0.86rem; font-weight: 600; color: var(--text); }
+.hz-bull .hz-dir { color: var(--green-text); }
+.hz-bear .hz-dir { color: var(--red-text); }
+.hz-flat .hz-dir { color: var(--yellow-text); }
+.hz-score {
+  font-size: 1.7rem; font-weight: 700; line-height: 1.1;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.hz-score-unit { font-size: 0.72rem; font-weight: 500; color: var(--text-3); margin-left: 2px; }
+.hz-pos { font-size: 0.82rem; color: var(--text); }
+.hz-sub { font-size: 0.74rem; color: var(--text-2); }
+.hz-note { font-size: 0.78rem; color: var(--text-2); }
+.hz-foot {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 0.5px solid var(--hairline);
+  font-size: 0.74rem; line-height: 1.6; color: var(--text-2);
+}
+
+/* 宽表在窄屏可横向滚动，避免撑破版心 */
+#content table, .ps-table { display: block; overflow-x: auto; max-width: 100%; }
+
+@media (max-width: 860px) {
+  .hz-grid { grid-template-columns: 1fr; }
+}
+
 `;
 
 const HOME = `
