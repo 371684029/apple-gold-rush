@@ -24,6 +24,15 @@ const {
   extractQuantCoverage,
 } = require('./web/report-extract.cjs');
 const { renderHorizonStrip } = require('./web/horizon-strip.cjs');
+const {
+  loadReportMeta,
+  scoreInfoFromMeta,
+  quantInfoFromMeta,
+  positionFromMeta,
+  adviceFromMeta,
+  gateFromMeta,
+  dualFromMeta,
+} = require('./web/report-meta.cjs');
 
 /** macOS 风格窗口标题栏（装饰性 traffic lights） */
 function macTitlebar(label = '') {
@@ -1163,12 +1172,16 @@ function getFileInfos(files) {
     const fp = path.join(DOCS_DIR, f);
     const stats = fs.statSync(fp);
     const md = fs.readFileSync(fp, 'utf-8');
-    const scoreInfo = extractScore(md);
-    const quantInfo = extractQuantScore(md);
+    const meta = kindIsAnalysis(f) ? loadReportMeta(fp) : null;
+    const scoreInfo = scoreInfoFromMeta(meta) || extractScore(md);
+    const quantInfo = quantInfoFromMeta(meta) || extractQuantScore(md);
     const dims = extractDimensionScores(md);
-    const qualityGate = extractDataQualityGate(md);
-    const dualScore = extractDualScore(md);
-    const positionRec = enrichPositionHeadline(extractPositionRecommend(md), dualScore);
+    const qualityGate = gateFromMeta(meta) || extractDataQualityGate(md);
+    const dualScore = dualFromMeta(meta) || extractDualScore(md);
+    const positionRec = enrichPositionHeadline(
+      positionFromMeta(meta) || extractPositionRecommend(md),
+      dualScore,
+    );
     const kind = classifyDoc(f);
     let dateLabel = f.replace(/\.md$/, '');
     if (kind === 'analysis') dateLabel = f.replace('goldrush-analysis-', '').replace('.md', '');
@@ -1181,6 +1194,8 @@ function getFileInfos(files) {
         ? '错因反思 · 最新'
         : f.replace('goldrush-reflect-', '').replace('.md', '');
     }
+    const advice = adviceFromMeta(meta)
+      || resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec);
     return {
       filename: f,
       kind,
@@ -1205,12 +1220,17 @@ function getFileInfos(files) {
       positionRec,
       scenarios: extractScenarios(md),
       strategies: extractStrategies(md),
-      advice: resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec),
+      advice,
       dayDelta: extractDayDelta(md),
       readingChecklist: extractReadingChecklist(md),
       transmission: extractTransmission(md),
+      meta,
     };
   });
+}
+
+function kindIsAnalysis(filename) {
+  return classifyDoc(filename) === 'analysis';
 }
 
 // ===== 评分徽章 =====
@@ -1371,7 +1391,8 @@ function renderIndex(fileInfos) {
   let latestHorizonHtml = '';
   if (latest?.filename) {
     try {
-      latestHorizonHtml = renderHorizonStrip(fs.readFileSync(path.join(DOCS_DIR, latest.filename), 'utf-8'));
+      const latestMd = fs.readFileSync(path.join(DOCS_DIR, latest.filename), 'utf-8');
+      latestHorizonHtml = renderHorizonStrip(latestMd, latest.meta || loadReportMeta(path.join(DOCS_DIR, latest.filename)));
     } catch { /* 读不到就不显示，不影响首页其余内容 */ }
   }
 
@@ -1473,7 +1494,10 @@ function renderArticle(mdFilename, rawMarkdown) {
   const dateLabel = kind === 'analysis'
     ? mdFilename.replace('goldrush-analysis-', '').replace('.md', '')
     : mdFilename.replace(/\.md$/, '');
-  const scoreInfo = extractScore(rawMarkdown);
+  const meta = kind === 'analysis'
+    ? loadReportMeta(path.join(DOCS_DIR, mdFilename))
+    : null;
+  const scoreInfo = scoreInfoFromMeta(meta) || extractScore(rawMarkdown);
   const dims = extractDimensionScores(rawMarkdown);
   const breakdown = extractScoreBreakdown(rawMarkdown);
   const macro = extractMacroRegime(rawMarkdown);
@@ -1482,12 +1506,15 @@ function renderArticle(mdFilename, rawMarkdown) {
   const similarSummary = summarizeSimilarDays(similar);
   const calibration = extractCalibration(rawMarkdown);
   const confidence = extractDataConfidence(rawMarkdown);
-  const qualityGate = extractDataQualityGate(rawMarkdown);
-  const dualScore = extractDualScore(rawMarkdown);
+  const qualityGate = gateFromMeta(meta) || extractDataQualityGate(rawMarkdown);
+  const dualScore = dualFromMeta(meta) || extractDualScore(rawMarkdown);
   const scenarios = extractScenarios(rawMarkdown);
   const strategies = extractStrategies(rawMarkdown);
-  const quantInfo = extractQuantScore(rawMarkdown);
-  const positionRec = enrichPositionHeadline(extractPositionRecommend(rawMarkdown), dualScore);
+  const quantInfo = quantInfoFromMeta(meta) || extractQuantScore(rawMarkdown);
+  const positionRec = enrichPositionHeadline(
+    positionFromMeta(meta) || extractPositionRecommend(rawMarkdown),
+    dualScore,
+  );
   const predictionStats = loadPredictionStats();
   const dayDelta = extractDayDelta(rawMarkdown);
   const readingChecklist = extractReadingChecklist(rawMarkdown);
@@ -1499,10 +1526,11 @@ function renderArticle(mdFilename, rawMarkdown) {
     calibration,
     positionLine: positionRec ? `建议仓位 ${positionRec.targetPct}%（${positionRec.label}）` : null,
   });
-  const advice = resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec);
+  const advice = adviceFromMeta(meta)
+    || resolveAdvice(scoreInfo, qualityGate, dualScore, positionRec);
 
   // 三期决策条置于文章最顶部：短/中/长一屏看完再决定要不要细读
-  const horizonStripHtml = kind === 'analysis' ? renderHorizonStrip(rawMarkdown) : '';
+  const horizonStripHtml = kind === 'analysis' ? renderHorizonStrip(rawMarkdown, meta) : '';
 
   // Quick-read card only for analysis
   const quickReadHtml = kind === 'analysis' ? renderQuickRead({

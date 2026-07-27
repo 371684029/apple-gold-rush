@@ -99,6 +99,8 @@ describe('formatReportMarkdown', () => {
         sampleEligible: 5,
         llm: { hits: 3, total: 4, hitRate: 75, ciLow: 30.1, ciHigh: 95.4, significant: false, beatsBaseline: false },
         quant: { hits: 0, total: 0, hitRate: null, ciLow: null, ciHigh: null, significant: false, beatsBaseline: false },
+        midTerm: { hits: 0, total: 0, hitRate: null, ciLow: null, ciHigh: null, significant: false, beatsBaseline: false },
+        midTermHorizonDays: 20,
         baselineUpRate: 52,
         baselineN: 25,
         highScoreUpRate: 60,

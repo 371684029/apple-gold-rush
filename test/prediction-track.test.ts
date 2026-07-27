@@ -11,6 +11,8 @@ function sampleStats(): PredictionTrackStats {
     sampleEligible: 12,
     llm: { hits: 7, total: 10, hitRate: 70, ciLow: 39.7, ciHigh: 89.2, significant: true, beatsBaseline: false },
     quant: { hits: 4, total: 6, hitRate: 66.7, ciLow: 30, ciHigh: 90.3, significant: false, beatsBaseline: false },
+    midTerm: { hits: 0, total: 0, hitRate: null, ciLow: null, ciHigh: null, significant: false, beatsBaseline: false },
+    midTermHorizonDays: 20,
     baselineUpRate: 55,
     baselineN: 20,
     highScoreUpRate: 62.5,
@@ -90,5 +92,16 @@ describe('prediction-track formatters', () => {
   it('样本不足的统计明确标注不具统计意义', () => {
     const md = formatPredictionTrackMarkdown(sampleStats());
     expect(md).toContain('样本不足');
+  });
+
+  it('中期 20 日命中单独成行', () => {
+    const withMid = sampleStats();
+    withMid.midTerm = {
+      hits: 6, total: 10, hitRate: 60, ciLow: 31.3, ciHigh: 83.2,
+      significant: true, beatsBaseline: false,
+    };
+    const md = formatPredictionTrackMarkdown(withMid);
+    expect(md).toContain('中期(20日)命中');
+    expect(md).toContain('**60%**');
   });
 });

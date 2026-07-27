@@ -11,6 +11,7 @@
 'use strict';
 
 const { extractScore } = require('./report-extract.cjs');
+const { horizonViewFromMeta } = require('./report-meta.cjs');
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -168,8 +169,10 @@ function extractLongTerm(md) {
   };
 }
 
-/** 汇总三档，缺失的档位保留占位以免用户以为漏了 */
-function buildHorizonView(md) {
+/** 汇总三档；有 sidecar 时优先用机器契约，避免 MD 版式漂移 */
+function buildHorizonView(md, meta) {
+  const fromMeta = meta ? horizonViewFromMeta(meta) : null;
+  if (fromMeta?.short) return fromMeta;
   return {
     short: extractShortTerm(md),
     mid: extractMidTerm(md),
@@ -212,9 +215,11 @@ function renderCell(cell, fallbackNote) {
 
 /**
  * 渲染三期决策条。三档全缺时返回空串，避免出现空壳。
+ * @param {string} md
+ * @param {object} [meta] 可选 sidecar；有则优先
  */
-function renderHorizonStrip(md) {
-  const view = buildHorizonView(md);
+function renderHorizonStrip(md, meta) {
+  const view = buildHorizonView(md, meta);
   if (!view.short && !view.mid && !view.long) return '';
 
   return `<section class="horizon-strip" aria-label="短中长期决策一览">

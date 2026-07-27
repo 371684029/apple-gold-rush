@@ -59,3 +59,15 @@ export {
   consistencyEmoji,
   resolveOperationalAdvice,
 } from './plain-advice.js';
+export {
+  buildReportMeta,
+  saveReportMeta,
+  loadReportMeta,
+  metaPathForMarkdown,
+  REPORT_META_SCHEMA,
+} from './report-meta.js';
+export type {
+  ReportMeta,
+  ReportMetaHorizon,
+  BuildReportMetaInput,
+} from './report-meta.js';

@@ -53,8 +53,25 @@ export class GoldPricesRepo {
     );
   }
 
-  /** 历史回填：仅填充 NULL 字段，不覆盖已有实时采集数据 */
+  /**
+   * 历史回填：仅填充 NULL 字段，不覆盖已有实时采集数据。
+   * 与 upsert 一样走 sanitize —— 否则 LLM/CSV 回填可以把 0 或负数写进库，
+   * 而日常 upsert 的 COALESCE 又挡不住「首次写入就是脏值」。
+   */
   upsertBackfill(record: Omit<GoldPriceRecord, 'createdAt'>): void {
+    const londonClose = GoldPricesRepo.sanitize(record.londonClose);
+    const londonHigh = GoldPricesRepo.sanitize(record.londonHigh);
+    const londonLow = GoldPricesRepo.sanitize(record.londonLow);
+    const shanghaiClose = GoldPricesRepo.sanitize(record.shanghaiClose);
+    const shanghaiHigh = GoldPricesRepo.sanitize(record.shanghaiHigh);
+    const shanghaiLow = GoldPricesRepo.sanitize(record.shanghaiLow);
+    const etfNav = GoldPricesRepo.sanitize(record.etfNav);
+    const dollarIndex = GoldPricesRepo.sanitize(record.dollarIndex);
+    const us10yYield = GoldPricesRepo.sanitize(record.us10yYield);
+    const tipsYield = record.tipsYield != null && Number.isFinite(record.tipsYield) && record.tipsYield !== 0
+      ? record.tipsYield
+      : null;
+
     this.db.prepare(`
       INSERT INTO gold_prices (date, london_close, london_high, london_low,
         shanghai_close, shanghai_high, shanghai_low, etf_nav, etf_change,
@@ -73,10 +90,10 @@ export class GoldPricesRepo {
         us10y_yield = COALESCE(gold_prices.us10y_yield, excluded.us10y_yield),
         tips_yield = COALESCE(gold_prices.tips_yield, excluded.tips_yield)
     `).run(
-      record.date, record.londonClose, record.londonHigh, record.londonLow,
-      record.shanghaiClose, record.shanghaiHigh, record.shanghaiLow,
-      record.etfNav, record.etfChange, record.dollarIndex,
-      record.us10yYield, record.tipsYield,
+      record.date, londonClose, londonHigh, londonLow,
+      shanghaiClose, shanghaiHigh, shanghaiLow,
+      etfNav, record.etfChange ?? null, dollarIndex,
+      us10yYield, tipsYield,
     );
   }
 

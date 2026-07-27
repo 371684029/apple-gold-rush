@@ -9,6 +9,7 @@ import { AgentTimeoutError } from '../agents/base.js';
 import chalk from 'chalk';
 import { header, separator, directionMark, scoreBar, changeColor, riskLevel, valuationMark, sessionMark } from '../utils/format.js';
 import { formatReportMarkdown } from '../utils/report-md.js';
+import { buildReportMeta, saveReportMeta } from '../utils/report-meta.js';
 import { computeTailRiskIndex } from '../utils/tail-risk.js';
 import { getConfig } from '../utils/config.js';
 import { buildScoreBreakdown, extendBreakdownWithCalibration, formatScoreBreakdownConsole, formatScoreBreakdownOneLine } from '../utils/score-breakdown.js';
@@ -654,7 +655,16 @@ export async function analysisCommand(options: {
       dualVerdict,
     });
     fs.writeFileSync(filename, mdContent, 'utf-8');
+    const meta = buildReportMeta({
+      report,
+      dualVerdict,
+      dataQualityGate,
+      positionRec,
+      reliabilityCard,
+    });
+    const metaPath = saveReportMeta(filename, meta);
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
+    console.log(`   结构化 sidecar: ${metaPath}`);
   }
 
   // 清理
@@ -908,7 +918,16 @@ async function runSmartAnalysis(
       formatReportMarkdown(report, options.horizon, reportExtras),
       'utf-8',
     );
+    const meta = buildReportMeta({
+      report,
+      dualVerdict,
+      dataQualityGate,
+      positionRec,
+      reliabilityCard,
+    });
+    const metaPath = saveReportMeta(filename, meta);
     console.log(`\n📝 报告已保存为 Markdown: ${filename}`);
+    console.log(`   结构化 sidecar: ${metaPath}`);
   }
 
   return 0;

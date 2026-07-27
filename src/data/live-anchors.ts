@@ -133,12 +133,15 @@ export async function fetchFredLatest(seriesId: string): Promise<LiveAnchorPrice
     if (!date || !valRaw || valRaw === '.') continue;
     const val = parseFloat(valRaw);
     if (!Number.isFinite(val)) continue;
+    // timestamp 必须用观测日，不能写成 now：否则 FRED 断线两周后，
+    // verifiedAt 仍显示「刚刚验证」，量化分会把陈旧实际利率当今天的信号。
+    const obsDate = date.trim();
     return {
       symbol: seriesId,
       price: val,
       change: 0,
-      timestamp: new Date().toISOString(),
-      date: date.trim(),
+      timestamp: `${obsDate}T00:00:00.000Z`,
+      date: obsDate,
       source: `FRED ${seriesId}`,
     };
   }

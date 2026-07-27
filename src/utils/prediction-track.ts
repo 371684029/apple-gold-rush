@@ -75,6 +75,13 @@ export interface PredictionTrackStats {
   llm: HitStat;
   quant: HitStat;
   /**
+   * 中期方向命中（mid_term_score → 20 个交易日）。
+   * 样本不足时 hitRate 为 null，文案会说明「待积累」。
+   */
+  midTerm: HitStat;
+  /** 中期标签用的交易日数（默认 20） */
+  midTermHorizonDays: number;
+  /**
    * 「永远看涨」的朴素基准命中率（0-100）。
    * 黄金长期偏多头，不跟基准比就无法判断模型是有信息量还是只是蹭了趋势。
    */
@@ -262,9 +269,37 @@ export function buildPredictionTrackStats(
   const llmStat = toHitStat(dual.llmHits, dual.llmTotal, baselineRate);
   const quantStat = toHitStat(dual.quantHits, dual.quantTotal, baselineRate);
 
+  // 中期：mid_term_score → 20 个交易日方向，与短期 5 日分轨
+  const MID_T = 20;
+  let midHits = 0;
+  let midTotal = 0;
+  let midBaselineUp = 0;
+  let midBaselineN = 0;
+  for (const r of eligible) {
+    if (r.midTermScore == null || !Number.isFinite(r.midTermScore)) continue;
+    // 中期窗口不允许部分凑合：不足 20 日就不计，避免和短期混窗
+    const full = forwardReturnPct(prices, r.date, MID_T, { allowPartial: false });
+    if (full == null) continue;
+    const cls = classifyReturn(full);
+    if (cls === 'flat') continue;
+    midBaselineN++;
+    if (cls === 'up') midBaselineUp++;
+    const hit = isHit(predictDirectionFromScore(r.midTermScore), full);
+    if (hit == null) continue;
+    midTotal++;
+    if (hit) midHits++;
+  }
+  const midBaseline = midBaselineN > 0 ? midBaselineUp / midBaselineN : baselineRate;
+  const midStat = toHitStat(midHits, midTotal, midBaseline);
+
   const parts: string[] = [];
   parts.push(`LLM 方向命中 ${formatHitRate(dual.llmHits, dual.llmTotal, baselineRate ?? undefined)}`);
   parts.push(`量化命中 ${formatHitRate(dual.quantHits, dual.quantTotal, baselineRate ?? undefined)}`);
+  if (midTotal > 0) {
+    parts.push(`中期(${MID_T}日)命中 ${formatHitRate(midHits, midTotal, midBaseline ?? undefined)}`);
+  } else {
+    parts.push(`中期(${MID_T}日)命中 待积累 mid_term_score`);
+  }
   if (baselineRate != null) {
     parts.push(`永远看涨基准 ${(baselineRate * 100).toFixed(0)}%（${baselineUp}/${baselineN}）`);
   }
@@ -284,6 +319,8 @@ export function buildPredictionTrackStats(
     sampleEligible: eligible.length,
     llm: llmStat,
     quant: quantStat,
+    midTerm: midStat,
+    midTermHorizonDays: MID_T,
     baselineUpRate: baselineRate != null ? Math.round(baselineRate * 1000) / 10 : null,
     baselineN,
     highScoreUpRate: highN >= 1 ? Math.round((highUp / highN) * 1000) / 10 : null,
@@ -354,6 +391,7 @@ export function formatPredictionTrackMarkdown(stats: PredictionTrackStats): stri
     '|------|------|',
     `| LLM 方向命中 | ${formatHitStatCell(stats.llm)} |`,
     `| 量化方向命中 | ${formatHitStatCell(stats.quant, '待积累 quant_score')} |`,
+    `| 中期(${stats.midTermHorizonDays ?? 20}日)命中 | ${formatHitStatCell(stats.midTerm, '待积累 mid_term_score')} |`,
     `| 永远看涨基准 | ${stats.baselineUpRate != null ? `**${stats.baselineUpRate}%**（${stats.baselineN} 个可评估日）` : 'N/A'} |`,
     `| 高分段(≥60) 5日涨概率 | ${stats.highScoreUpRate != null ? `**${stats.highScoreUpRate}%**（n=${stats.highScoreN}）` : 'N/A'} |`,
     `| 低分段(≤40) 5日涨概率 | ${stats.lowScoreUpRate != null ? `**${stats.lowScoreUpRate}%**（n=${stats.lowScoreN}）` : 'N/A'} |`,

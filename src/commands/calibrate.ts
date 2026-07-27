@@ -11,7 +11,7 @@ import {
 } from '../utils/calibration-tearsheet.js';
 import { renderEquityCurveSvg } from '../utils/chart-svg.js';
 import { computeFactorIc, formatFactorIcConsole, formatFactorIcMarkdown } from '../utils/factor-ic.js';
-import { summarizeWalkForward, formatWalkForwardConsole, formatWalkForwardMarkdown } from '../utils/walk-forward.js';
+import { summarizeWalkForward, formatWalkForwardConsole, formatWalkForwardMarkdown, computeOosHitStats } from '../utils/walk-forward.js';
 import { header, separator } from '../utils/format.js';
 import chalk from 'chalk';
 import type { CalibrateOptions } from '../types/config.js';
@@ -57,7 +57,12 @@ export async function calibrateCommand(options: CalibrateOptions): Promise<void>
       const testTo = rows[rows.length - 1].date;
       const trainCal = repo.computeCalibrationInRange(trainFrom, trainTo);
       const testCal = repo.computeCalibrationInRange(testFrom, testTo);
-      walkForward = summarizeWalkForward(trainCal, testCal);
+      const oos = computeOosHitStats({
+        testReports: rows.slice(mid),
+        prices: pricesRepo,
+        horizonDays: 5,
+      });
+      walkForward = summarizeWalkForward(trainCal, testCal, oos);
     } else {
       console.log(chalk.yellow('\n  🚶 Walk-forward：报告不足 10 条，跳过'));
     }
