@@ -12,7 +12,7 @@ describe('buildReliabilityCard', () => {
       direction: 'bullish',
       quantScore: 58,
       dataGate: { tier: 'green', actionable: true, overallConfidence: 75, banners: [] },
-      dual: { alignment: 'aligned', delta: 4, actionPolicy: 'show_both', sameDirection: true },
+      dual: { alignment: 'aligned', delta: 4, actionPolicy: 'both', sameDirection: true },
       consistency: { level: 'strong', summary: '4/4 偏多', agreeCount: 4, totalCount: 4 },
       calibrationSampleSize: 22,
       calibrationBias: '中性',
@@ -33,7 +33,7 @@ describe('buildReliabilityCard', () => {
       direction: 'neutral',
       quantScore: 54,
       dataGate: { tier: 'green', actionable: true, overallConfidence: 72, banners: [] },
-      dual: { alignment: 'aligned', delta: 1, actionPolicy: 'show_both', sameDirection: true },
+      dual: { alignment: 'aligned', delta: 1, actionPolicy: 'both', sameDirection: true },
       consistency: { level: 'strong', summary: '4/4', agreeCount: 4, totalCount: 4 },
       calibrationSampleSize: 15,
       position: { targetPct: 55, label: '标配', emoji: '🟡', headline: '维持', tilt: 'hold' },
@@ -53,7 +53,7 @@ describe('buildReliabilityCard', () => {
     const c = buildReliabilityCard({
       llmScore: 60,
       dataGate: { tier: 'green', actionable: true, overallConfidence: 70, banners: [] },
-      dual: { alignment: 'aligned', delta: 3, actionPolicy: 'show_both', sameDirection: true },
+      dual: { alignment: 'aligned', delta: 3, actionPolicy: 'both', sameDirection: true },
       consistency: { level: 'moderate', summary: '3/4', agreeCount: 3, totalCount: 4 },
       calibrationSampleSize: 12,
       trackHitRate: 65,
@@ -66,7 +66,7 @@ describe('buildReliabilityCard', () => {
     const c = buildReliabilityCard({
       llmScore: 55,
       dataGate: { tier: 'red', actionable: false, overallConfidence: 30, banners: [] },
-      dual: { alignment: 'aligned', delta: 2, actionPolicy: 'show_both', sameDirection: true },
+      dual: { alignment: 'aligned', delta: 2, actionPolicy: 'both', sameDirection: true },
       consistency: { level: 'moderate', summary: '3/4', agreeCount: 3, totalCount: 4 },
       calibrationSampleSize: 3,
     });

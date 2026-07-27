@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // 测试用 vitest 的 bundler 解析（无扩展名 import），与 src 的 Node16 输出解析不同
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "rootDir": ".",
+    "allowJs": true,
+    "checkJs": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*", "test/**/*"],
+  // 这些用例测的是 web/ 下的纯 JS(.cjs) 模块，类型由推断得来、噪音大，不纳入类型校验
+  "exclude": ["node_modules", "dist", "data", "test/list-card-meta.test.ts"]
+}

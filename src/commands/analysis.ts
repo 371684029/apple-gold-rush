@@ -993,7 +993,7 @@ function printReport(
   if (overall?.quantScore != null) {
     const delta = overall.score - overall.quantScore;
     const deltaStr = delta > 0 ? `LLM偏高 +${delta}` : delta < 0 ? `LLM偏低 ${delta}` : '一致';
-    const quantDir = overall.quantScore >= 58 ? 'bullish' : overall.quantScore <= 42 ? 'bearish' : 'neutral';
+    const quantDir = directionFromScore(overall.quantScore);
     console.log(`  🔢 量化评分: ${scoreBar(overall.quantScore)}`);
     console.log(`     量化=${overall.quantScore} ${directionMark(quantDir)} | LLM=${overall.score} | 偏差=${deltaStr} | 策略=${dual?.actionPolicy ?? 'n/a'}`);
     if (overall.quantFactors) {

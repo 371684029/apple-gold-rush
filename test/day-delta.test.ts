@@ -27,7 +27,7 @@ function stubReport(partial: {
         downside: { probability: scenarios.downside, description: '', action: '' },
       },
     },
-  } as GoldAnalysisReport;
+  } as unknown as GoldAnalysisReport;
 }
 
 describe('buildDriverMoves', () => {

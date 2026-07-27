@@ -10,9 +10,9 @@ import { SCORE_BUCKETS, scoreBucketRange } from '../utils/score-buckets.js';
 import {
   DUAL_CONFLICT_THRESHOLD,
   emptyDualTrackHitStats,
-  predictDirectionFromScore,
   type DualTrackHitStats,
 } from '../utils/dual-score.js';
+import { predictDirectionFromScore, classifyReturn } from '../utils/decision-thresholds.js';
 
 /** 有效金价：>0 才参与校准（排除脏 0 / 缺失） */
 function validClose(v: number | null | undefined): v is number {
@@ -65,7 +65,7 @@ export class CalibrationRepo {
 
       if (price5d?.londonClose) {
         const return5d = (price5d.londonClose - priceOnDate.londonClose) / priceOnDate.londonClose * 100;
-        const direction5d = return5d > 0.1 ? 'up' : return5d < -0.1 ? 'down' : 'flat';
+        const direction5d = classifyReturn(return5d);
 
         // 查找20天后的金价
         const after20d = this.prices.getAfter(feature.date, 20);
@@ -104,9 +104,10 @@ export class CalibrationRepo {
 
       const futureReturn =
         (futurePrice.londonClose - currentPrice!.londonClose!) / currentPrice!.londonClose! * 100;
-      const actualUp = futureReturn > 0.1;
-      const actualDown = futureReturn < -0.1;
-      if (!actualUp && !actualDown) continue; // flat 不计入方向命中
+      const actual = classifyReturn(futureReturn);
+      if (actual === 'flat') continue; // 持平不计入方向命中
+      const actualUp = actual === 'up';
+      const actualDown = actual === 'down';
 
       const llmPred = predictDirectionFromScore(report.overallScore);
       if (llmPred) {

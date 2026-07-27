@@ -9,8 +9,10 @@ function sampleStats(): PredictionTrackStats {
     asOf: '2026-07-16',
     windowDays: 90,
     sampleEligible: 12,
-    llm: { hits: 7, total: 10, hitRate: 70 },
-    quant: { hits: 4, total: 6, hitRate: 66.7 },
+    llm: { hits: 7, total: 10, hitRate: 70, ciLow: 39.7, ciHigh: 89.2, significant: true, beatsBaseline: false },
+    quant: { hits: 4, total: 6, hitRate: 66.7, ciLow: 30, ciHigh: 90.3, significant: false, beatsBaseline: false },
+    baselineUpRate: 55,
+    baselineN: 20,
     highScoreUpRate: 62.5,
     highScoreN: 8,
     lowScoreUpRate: 40,
@@ -71,5 +73,22 @@ describe('prediction-track formatters', () => {
     expect(md).toContain('2026-07-10');
     expect(md).toContain('✅');
     expect(md).toContain('顺/逆预测');
+  });
+
+  it('命中率带置信区间，并说明是否跑赢基准', () => {
+    const md = formatPredictionTrackMarkdown(sampleStats());
+    expect(md).toContain('95%CI 39.7–89.2%');
+    expect(md).toContain('未显著跑赢基准');
+  });
+
+  it('展示「永远看涨」基准供对照', () => {
+    const md = formatPredictionTrackMarkdown(sampleStats());
+    expect(md).toContain('永远看涨基准');
+    expect(md).toContain('**55%**');
+  });
+
+  it('样本不足的统计明确标注不具统计意义', () => {
+    const md = formatPredictionTrackMarkdown(sampleStats());
+    expect(md).toContain('样本不足');
   });
 });

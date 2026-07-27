@@ -89,9 +89,4 @@ export function applyCalibrationScore(
   };
 }
 
-/** 由校准后分数推导方向（与长期展望阈值一致） */
-export function directionFromScore(score: number): Direction {
-  if (score >= 58) return 'bullish';
-  if (score <= 42) return 'bearish';
-  return 'neutral';
-}
+export { directionFromScore } from './decision-thresholds.js';

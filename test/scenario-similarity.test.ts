@@ -21,6 +21,9 @@ function feat(partial: Partial<ScenarioFeature> & Pick<ScenarioFeature, 'date' |
     backfillStatus: 'pending',
     createdAt: '',
     ...partial,
+    cftcPercentile: partial.cftcPercentile ?? null,
+    etfFlow5d: partial.etfFlow5d ?? null,
+    flowScore: partial.flowScore ?? null,
   };
 }
 

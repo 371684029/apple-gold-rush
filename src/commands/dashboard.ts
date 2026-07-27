@@ -15,6 +15,7 @@ import { computeInstitutionalSignal } from '../indicators/flow-signal.js';
 import { scoreToAdvice } from '../utils/plain-advice.js';
 import { separator, directionMark, scoreBar } from '../utils/format.js';
 import { formatNow } from '../utils/time.js';
+import { directionFromScore } from '../utils/decision-thresholds.js';
 
 /** 计算数据年龄（人类可读） */
 function getDataAge(createdAt: string): string {
@@ -92,7 +93,7 @@ export async function dashboardCommand(): Promise<void> {
     if (latestReport.quantScore != null) {
       const delta = latestReport.overallScore - latestReport.quantScore;
       const deltaStr = delta > 0 ? `LLM偏高 +${delta}` : delta < 0 ? `LLM偏低 ${delta}` : '一致';
-      const quantDir = latestReport.quantScore >= 58 ? 'bullish' : latestReport.quantScore <= 42 ? 'bearish' : 'neutral';
+      const quantDir = directionFromScore(latestReport.quantScore);
       console.log(`  🔢 量化 ${latestReport.quantScore}/100 ${directionMark(quantDir)} | ${deltaStr}`);
     }
 

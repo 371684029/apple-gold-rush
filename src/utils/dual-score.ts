@@ -8,6 +8,7 @@
 // 5. 谁更准由 calibrate 分轨统计决定，不在此写死「永远跟量化」
 
 import type { Direction } from '../types/analysis.js';
+import { directionFromScore } from './decision-thresholds.js';
 
 /** 冲突阈值：绝对分差 */
 export const DUAL_CONFLICT_THRESHOLD = 15;
@@ -37,11 +38,7 @@ export interface DualScoreVerdict {
   actionOverride: { headline: string; action: string } | null;
 }
 
-export function dualDirectionFromScore(score: number): Direction {
-  if (score >= 58) return 'bullish';
-  if (score <= 42) return 'bearish';
-  return 'neutral';
-}
+export { directionFromScore as dualDirectionFromScore } from './decision-thresholds.js';
 
 export function dirLabel(d: Direction): string {
   if (d === 'bullish') return '偏多';
@@ -122,7 +119,7 @@ export function evaluateDualScore(
   },
 ): DualScoreVerdict {
   const banners: string[] = [];
-  const llmDirection = dualDirectionFromScore(llmScore);
+  const llmDirection = directionFromScore(llmScore);
 
   if (quantScore == null || !Number.isFinite(quantScore)) {
     banners.push('🔢 双打分：仅有 LLM 分（量化分缺失，请检查金价历史是否充足）');
@@ -143,7 +140,7 @@ export function evaluateDualScore(
   const q = Math.round(quantScore);
   const delta = Math.round(llmScore - q);
   const abs = Math.abs(delta);
-  const quantDirection = dualDirectionFromScore(q);
+  const quantDirection = directionFromScore(q);
   const sameDirection = llmDirection === quantDirection;
 
   let alignment: DualAlignment;
@@ -318,12 +315,7 @@ export function formatDualScoreMarkdown(v: DualScoreVerdict): string {
   return lines.join('\n');
 }
 
-/** 方向命中：score>55 预测涨，<45 预测跌，中间不计入 */
-export function predictDirectionFromScore(score: number): 'up' | 'down' | null {
-  if (score > 55) return 'up';
-  if (score < 45) return 'down';
-  return null;
-}
+export { predictDirectionFromScore } from './decision-thresholds.js';
 
 export interface DualTrackHitStats {
   llmHits: number;

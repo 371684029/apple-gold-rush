@@ -12,6 +12,13 @@ import { latestBollinger } from './bollinger.js';
 import { latestMA } from './ma.js';
 import { percentile } from './percentile.js';
 import type { InstitutionalSignal } from '../types/institutional.js';
+import { BULLISH_MIN_SCORE, BEARISH_MAX_SCORE } from '../utils/decision-thresholds.js';
+
+function quantDirection(score: number): 'bullish' | 'bearish' | 'neutral' {
+  if (score >= BULLISH_MIN_SCORE) return 'bullish';
+  if (score <= BEARISH_MAX_SCORE) return 'bearish';
+  return 'neutral';
+}
 
 // ============================================================
 // Types
@@ -299,7 +306,7 @@ export function computeQuantScore(params: QuantScoreParams): QuantScoreResult {
 
   return {
     score,
-    direction: score >= 58 ? 'bullish' : score <= 42 ? 'bearish' : 'neutral',
+    direction: quantDirection(score),
     factors,
     coverage,
     missingFactors,

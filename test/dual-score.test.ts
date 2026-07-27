@@ -5,6 +5,7 @@ import {
   alignDualOverrideWithPosition,
   DUAL_CONFLICT_THRESHOLD,
   predictDirectionFromScore,
+  dualDirectionFromScore,
 } from '../src/utils/dual-score';
 
 describe('evaluateDualScore', () => {
@@ -112,9 +113,26 @@ describe('alignDualOverrideWithPosition', () => {
 });
 
 describe('predictDirectionFromScore', () => {
-  it('边界', () => {
-    expect(predictDirectionFromScore(56)).toBe('up');
-    expect(predictDirectionFromScore(44)).toBe('down');
+  it('边界与展示方向一致（58/42）', () => {
+    expect(predictDirectionFromScore(58)).toBe('up');
+    expect(predictDirectionFromScore(42)).toBe('down');
     expect(predictDirectionFromScore(50)).toBeNull();
+  });
+
+  it('展示为中性的分数不计入方向命中', () => {
+    // 56 / 44 在页面上写「中性」，就不能按看涨/看跌记账
+    for (const score of [43, 44, 50, 56, 57]) {
+      expect(dualDirectionFromScore(score)).toBe('neutral');
+      expect(predictDirectionFromScore(score)).toBeNull();
+    }
+  });
+
+  it('记账方向与展示方向对所有分数都一致', () => {
+    for (let s = 0; s <= 100; s++) {
+      const shown = dualDirectionFromScore(s);
+      const graded = predictDirectionFromScore(s);
+      const expected = shown === 'bullish' ? 'up' : shown === 'bearish' ? 'down' : null;
+      expect(graded, `score=${s}`).toBe(expected);
+    }
   });
 });

@@ -9,10 +9,17 @@ import { ReportsRepo } from '../db/reports.js';
 import { GoldPricesRepo } from '../db/gold-prices.js';
 import { CalibrationRepo } from '../db/calibration.js';
 import { SCORE_BUCKETS } from './score-buckets.js';
+import { DUAL_CONFLICT_THRESHOLD } from './dual-score.js';
 import {
-  DUAL_CONFLICT_THRESHOLD,
   predictDirectionFromScore,
-} from './dual-score.js';
+  isHit,
+  classifyReturn,
+  wilsonInterval,
+  beatsBaseline,
+  formatHitRate,
+  HIT_RULE_TEXT,
+  MIN_HITRATE_SAMPLE,
+} from './decision-thresholds.js';
 
 export interface PredictionRecentRow {
   date: string;
@@ -45,12 +52,33 @@ export interface PredictionBucketStat {
   avgReturn: number;
 }
 
+export interface HitStat {
+  hits: number;
+  total: number;
+  /** 0-100；样本为 0 时为 null */
+  hitRate: number | null;
+  /** Wilson 95% 置信区间下界（0-100） */
+  ciLow: number | null;
+  /** Wilson 95% 置信区间上界（0-100） */
+  ciHigh: number | null;
+  /** 样本量是否达到可解读门槛 */
+  significant: boolean;
+  /** 是否在 95% 置信度下跑赢「永远看涨」基准 */
+  beatsBaseline: boolean;
+}
+
 export interface PredictionTrackStats {
   asOf: string;
   windowDays: number;
   sampleEligible: number;
-  llm: { hits: number; total: number; hitRate: number | null };
-  quant: { hits: number; total: number; hitRate: number | null };
+  llm: HitStat;
+  quant: HitStat;
+  /**
+   * 「永远看涨」的朴素基准命中率（0-100）。
+   * 黄金长期偏多头，不跟基准比就无法判断模型是有信息量还是只是蹭了趋势。
+   */
+  baselineUpRate: number | null;
+  baselineN: number;
   /** 高分段(≥60) 实际 5 日涨概率 */
   highScoreUpRate: number | null;
   highScoreN: number;
@@ -67,6 +95,22 @@ export interface PredictionTrackStats {
 
 function validClose(v: number | null | undefined): v is number {
   return v != null && Number.isFinite(v) && v > 0;
+}
+
+function toHitStat(hits: number, total: number, baseline: number | null): HitStat {
+  if (total <= 0) {
+    return { hits, total, hitRate: null, ciLow: null, ciHigh: null, significant: false, beatsBaseline: false };
+  }
+  const [lo, hi] = wilsonInterval(hits, total);
+  return {
+    hits,
+    total,
+    hitRate: Math.round((hits / total) * 1000) / 10,
+    ciLow: Math.round(lo * 1000) / 10,
+    ciHigh: Math.round(hi * 1000) / 10,
+    significant: total >= MIN_HITRATE_SAMPLE,
+    beatsBaseline: beatsBaseline(hits, total, baseline ?? 0.5),
+  };
 }
 
 function futureReturn(
@@ -157,14 +201,9 @@ export function buildPredictionTrackStats(
     let hit: boolean | null = null;
     if (ret == null) {
       status = 'pending';
-    } else if (Math.abs(ret) <= 0.1 || pred === 'flat') {
-      status = 'flat';
-      hit = null;
     } else {
-      const actualUp = ret > 0.1;
-      const actualDown = ret < -0.1;
-      hit = (pred === 'up' && actualUp) || (pred === 'down' && actualDown);
-      status = hit ? 'hit' : 'miss';
+      hit = isHit(predDir, ret);
+      status = hit == null ? 'flat' : hit ? 'hit' : 'miss';
     }
 
     let alignPct: number | null = null;
@@ -190,14 +229,9 @@ export function buildPredictionTrackStats(
       quantPred = qDir === 'up' ? 'up' : qDir === 'down' ? 'down' : 'flat';
       if (ret == null) {
         quantStatus = 'pending';
-      } else if (Math.abs(ret) <= 0.1 || quantPred === 'flat') {
-        quantStatus = 'flat';
-        quantHit = null;
       } else {
-        const actualUp = ret > 0.1;
-        const actualDown = ret < -0.1;
-        quantHit = (quantPred === 'up' && actualUp) || (quantPred === 'down' && actualDown);
-        quantStatus = quantHit ? 'hit' : 'miss';
+        quantHit = isHit(qDir, ret);
+        quantStatus = quantHit == null ? 'flat' : quantHit ? 'hit' : 'miss';
       }
     }
 
@@ -219,16 +253,27 @@ export function buildPredictionTrackStats(
     });
   }
 
-  const parts: string[] = [];
-  if (llmHitRate != null) {
-    parts.push(`LLM 方向命中 ${(llmHitRate * 100).toFixed(0)}%（${dual.llmHits}/${dual.llmTotal}）`);
-  } else {
-    parts.push('LLM 方向样本不足');
+  // 「永远看涨」基准：同一批可评估日里实际上涨的比例（持平不计入）
+  let baselineUp = 0;
+  let baselineN = 0;
+  for (const r of eligible) {
+    const ret = futureReturn(prices, r.date, T);
+    if (ret == null) continue;
+    const cls = classifyReturn(ret);
+    if (cls === 'flat') continue;
+    baselineN++;
+    if (cls === 'up') baselineUp++;
   }
-  if (quantHitRate != null) {
-    parts.push(`量化命中 ${(quantHitRate * 100).toFixed(0)}%（${dual.quantHits}/${dual.quantTotal}）`);
-  } else {
-    parts.push('量化样本待积累');
+  const baselineRate = baselineN > 0 ? baselineUp / baselineN : null;
+
+  const llmStat = toHitStat(dual.llmHits, dual.llmTotal, baselineRate);
+  const quantStat = toHitStat(dual.quantHits, dual.quantTotal, baselineRate);
+
+  const parts: string[] = [];
+  parts.push(`LLM 方向命中 ${formatHitRate(dual.llmHits, dual.llmTotal, baselineRate ?? undefined)}`);
+  parts.push(`量化命中 ${formatHitRate(dual.quantHits, dual.quantTotal, baselineRate ?? undefined)}`);
+  if (baselineRate != null) {
+    parts.push(`永远看涨基准 ${(baselineRate * 100).toFixed(0)}%（${baselineUp}/${baselineN}）`);
   }
   if (highN >= 3) {
     parts.push(`高分段(≥60) 5日涨 ${(highUp / highN * 100).toFixed(0)}%`);
@@ -244,16 +289,10 @@ export function buildPredictionTrackStats(
     asOf: new Date().toISOString().slice(0, 10),
     windowDays,
     sampleEligible: eligible.length,
-    llm: {
-      hits: dual.llmHits,
-      total: dual.llmTotal,
-      hitRate: llmHitRate != null ? Math.round(llmHitRate * 1000) / 10 : null,
-    },
-    quant: {
-      hits: dual.quantHits,
-      total: dual.quantTotal,
-      hitRate: quantHitRate != null ? Math.round(quantHitRate * 1000) / 10 : null,
-    },
+    llm: llmStat,
+    quant: quantStat,
+    baselineUpRate: baselineRate != null ? Math.round(baselineRate * 1000) / 10 : null,
+    baselineN,
     highScoreUpRate: highN >= 1 ? Math.round((highUp / highN) * 1000) / 10 : null,
     highScoreN: highN,
     lowScoreUpRate: lowN >= 1 ? Math.round((lowUp / lowN) * 1000) / 10 : null,
@@ -299,6 +338,15 @@ export function formatPredictionTrackConsole(stats: PredictionTrackStats, indent
   return lines.join('\n');
 }
 
+/** 命中率单元格：点估计 + 置信区间 + 是否跑赢基准，避免 7/10=70% 被读成「挺准」 */
+function formatHitStatCell(stat: HitStat, emptyNote = 'N/A'): string {
+  if (stat.hitRate == null) return emptyNote;
+  const base = `**${stat.hitRate}%**（${stat.hits}/${stat.total}）`;
+  if (!stat.significant) return `${base} · ⚠️ 样本不足 ${MIN_HITRATE_SAMPLE}，不具统计意义`;
+  const ci = stat.ciLow != null && stat.ciHigh != null ? ` · 95%CI ${stat.ciLow}–${stat.ciHigh}%` : '';
+  return `${base}${ci} · ${stat.beatsBaseline ? '显著跑赢基准' : '未显著跑赢基准'}`;
+}
+
 export function formatPredictionTrackMarkdown(stats: PredictionTrackStats): string {
   const lines = [
     '## 📊 历史预测对错',
@@ -311,8 +359,9 @@ export function formatPredictionTrackMarkdown(stats: PredictionTrackStats): stri
     '',
     '| 指标 | 数值 |',
     '|------|------|',
-    `| LLM 方向命中 | ${stats.llm.hitRate != null ? `**${stats.llm.hitRate}%**（${stats.llm.hits}/${stats.llm.total}）` : 'N/A'} |`,
-    `| 量化方向命中 | ${stats.quant.hitRate != null ? `**${stats.quant.hitRate}%**（${stats.quant.hits}/${stats.quant.total}）` : 'N/A（待积累 quant_score）'} |`,
+    `| LLM 方向命中 | ${formatHitStatCell(stats.llm)} |`,
+    `| 量化方向命中 | ${formatHitStatCell(stats.quant, '待积累 quant_score')} |`,
+    `| 永远看涨基准 | ${stats.baselineUpRate != null ? `**${stats.baselineUpRate}%**（${stats.baselineN} 个可评估日）` : 'N/A'} |`,
     `| 高分段(≥60) 5日涨概率 | ${stats.highScoreUpRate != null ? `**${stats.highScoreUpRate}%**（n=${stats.highScoreN}）` : 'N/A'} |`,
     `| 低分段(≤40) 5日涨概率 | ${stats.lowScoreUpRate != null ? `**${stats.lowScoreUpRate}%**（n=${stats.lowScoreN}）` : 'N/A'} |`,
     `| 双分冲突日 | **${stats.conflictDays}**（跟量化对 ${stats.conflictFollowQuantHits} / 跟LLM对 ${stats.conflictFollowLlmHits}） |`,
@@ -348,7 +397,9 @@ export function formatPredictionTrackMarkdown(stats: PredictionTrackStats): stri
     lines.push('');
   }
 
-  lines.push('> 预测方向：分数 &gt;55 记「涨」，&lt;45 记「跌」，中间不计入命中率；持平(|涨跌|≤0.1%) 不计对错。**顺/逆预测**：价格是否朝预测方向走；**相对同档**：本日 5 日涨跌 − 同评分区间历史均值。非投资业绩承诺。');
+  lines.push(`> 记账口径：${HIT_RULE_TEXT}**顺/逆预测**：价格是否朝预测方向走；**相对同档**：本日 5 日涨跌 − 同评分区间历史均值。`);
+  lines.push('>');
+  lines.push('> 命中率须与「永远看涨」基准对比才有意义——黄金长期偏多头，不比基准就分不清模型有信息量还是只是蹭了趋势。样本不足 10 次时百分比不具统计意义。非投资业绩承诺。');
   lines.push('');
   return lines.join('\n');
 }
